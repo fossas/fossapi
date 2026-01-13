@@ -3,7 +3,7 @@
 //! A command-line interface for interacting with the FOSSA API.
 
 use clap::Parser;
-use fossapi::cli::{Cli, Command, Entity};
+use fossapi::cli::{Cli, Command, Entity, GetCommand};
 use fossapi::{
     get_dependencies, FossaClient, Get, Issue, List, Page, Project, ProjectUpdateParams, Revision,
     Update,
@@ -36,7 +36,7 @@ async fn main() -> ExitCode {
 
 async fn run(client: &FossaClient, cli: Cli) -> fossapi::Result<()> {
     match cli.command {
-        Command::Get { entity, locator } => handle_get(client, entity, &locator, cli.json).await,
+        Command::Get { command } => handle_get(client, command, cli.json).await,
         Command::List {
             entity,
             page,
@@ -54,32 +54,21 @@ async fn run(client: &FossaClient, cli: Cli) -> fossapi::Result<()> {
 
 async fn handle_get(
     client: &FossaClient,
-    entity: Entity,
-    locator: &str,
+    command: GetCommand,
     json: bool,
 ) -> fossapi::Result<()> {
-    match entity {
-        Entity::Project => {
-            let project = Project::get(client, locator.to_string()).await?;
+    match command {
+        GetCommand::Project { locator } => {
+            let project = Project::get(client, locator).await?;
             output_single(&project, json)?;
         }
-        Entity::Revision => {
-            let revision = Revision::get(client, locator.to_string()).await?;
+        GetCommand::Revision { locator } => {
+            let revision = Revision::get(client, locator).await?;
             output_single(&revision, json)?;
         }
-        Entity::Issue => {
-            let id: u64 = locator
-                .parse()
-                .map_err(|_| fossapi::FossaError::InvalidLocator(locator.to_string()))?;
+        GetCommand::Issue { id } => {
             let issue = Issue::get(client, id).await?;
             output_single(&issue, json)?;
-        }
-        Entity::Dependency => {
-            eprintln!("Error: Dependencies can only be listed, not retrieved individually");
-            eprintln!("Hint: Use 'fossapi list dependencies --revision <locator>'");
-            return Err(fossapi::FossaError::InvalidLocator(
-                "get dependency not supported".to_string(),
-            ));
         }
     }
     Ok(())

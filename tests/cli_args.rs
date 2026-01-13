@@ -3,7 +3,7 @@
 //! These tests define the expected CLI interface. Written BEFORE implementation.
 
 use clap::Parser;
-use fossapi::cli::{Cli, Command, Entity};
+use fossapi::cli::{Cli, Command, Entity, GetCommand};
 
 #[test]
 fn test_cli_parses_get_subcommand() {
@@ -11,11 +11,10 @@ fn test_cli_parses_get_subcommand() {
 
     assert!(!cli.json);
     match cli.command {
-        Command::Get { entity, locator } => {
-            assert!(matches!(entity, Entity::Project));
+        Command::Get { command: GetCommand::Project { locator } } => {
             assert_eq!(locator, "custom+acme/myapp");
         }
-        _ => panic!("Expected Get command"),
+        _ => panic!("Expected Get command with Project variant"),
     }
 }
 
@@ -85,19 +84,56 @@ fn test_list_pagination_args() {
 
 #[test]
 fn test_entity_variants() {
-    // Project
+    // Project (get uses GetCommand)
     let cli = Cli::parse_from(["fossapi", "get", "project", "loc"]);
-    assert!(matches!(cli.command, Command::Get { entity: Entity::Project, .. }));
+    assert!(matches!(cli.command, Command::Get { command: GetCommand::Project { .. } }));
 
-    // Revision
+    // Revision (get uses GetCommand)
     let cli = Cli::parse_from(["fossapi", "get", "revision", "loc"]);
-    assert!(matches!(cli.command, Command::Get { entity: Entity::Revision, .. }));
+    assert!(matches!(cli.command, Command::Get { command: GetCommand::Revision { .. } }));
 
-    // Issue
+    // Issue (get uses GetCommand with u64 id)
     let cli = Cli::parse_from(["fossapi", "get", "issue", "123"]);
-    assert!(matches!(cli.command, Command::Get { entity: Entity::Issue, .. }));
+    assert!(matches!(cli.command, Command::Get { command: GetCommand::Issue { id: 123 } }));
 
-    // Dependencies (list only)
+    // Dependencies (list only, still uses Entity)
     let cli = Cli::parse_from(["fossapi", "list", "dependencies", "--revision", "loc"]);
     assert!(matches!(cli.command, Command::List { entity: Entity::Dependency, .. }));
+}
+
+// =============================================================================
+// TDD Tests for ISS-10843: GetCommand type-safe parsing
+// =============================================================================
+
+#[test]
+fn test_get_project_parses_locator() {
+    let cli = Cli::parse_from(["fossapi", "get", "project", "custom+acme/myapp"]);
+    match cli.command {
+        Command::Get { command: GetCommand::Project { locator } } => {
+            assert_eq!(locator, "custom+acme/myapp");
+        }
+        _ => panic!("Expected GetCommand::Project"),
+    }
+}
+
+#[test]
+fn test_get_revision_parses_locator() {
+    let cli = Cli::parse_from(["fossapi", "get", "revision", "custom+acme/myapp$abc123"]);
+    match cli.command {
+        Command::Get { command: GetCommand::Revision { locator } } => {
+            assert_eq!(locator, "custom+acme/myapp$abc123");
+        }
+        _ => panic!("Expected GetCommand::Revision"),
+    }
+}
+
+#[test]
+fn test_get_issue_parses_numeric_id() {
+    let cli = Cli::parse_from(["fossapi", "get", "issue", "12345"]);
+    match cli.command {
+        Command::Get { command: GetCommand::Issue { id } } => {
+            assert_eq!(id, 12345u64);
+        }
+        _ => panic!("Expected GetCommand::Issue"),
+    }
 }
