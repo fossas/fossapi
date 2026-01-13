@@ -1,5 +1,275 @@
 //! Dependency model and trait implementations.
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // Supporting Struct Deserialization Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_dependency_status_deserialize() {
+        let json = r#"{"error": null, "resolved": true, "unsupported": false, "analyzing": false}"#;
+        let status: DependencyStatus = serde_json::from_str(json).expect("Failed to deserialize");
+        assert!(status.resolved);
+        assert!(!status.unsupported);
+        assert!(!status.analyzing);
+        assert!(status.error.is_none());
+    }
+
+    #[test]
+    fn test_dependency_status_deserialize_with_error() {
+        let json = r#"{"error": "Failed to resolve", "resolved": false, "unsupported": false, "analyzing": false}"#;
+        let status: DependencyStatus = serde_json::from_str(json).expect("Failed to deserialize");
+        assert!(!status.resolved);
+        assert_eq!(status.error.as_deref(), Some("Failed to resolve"));
+    }
+
+    #[test]
+    fn test_dependency_status_default() {
+        let json = r#"{}"#;
+        let status: DependencyStatus = serde_json::from_str(json).expect("Failed to deserialize");
+        assert!(!status.resolved);
+        assert!(!status.unsupported);
+        assert!(!status.analyzing);
+    }
+
+    #[test]
+    fn test_scoped_conclusion_deserialize() {
+        let json = r#"{"licenses": ["MIT", "Apache-2.0"], "lastEditedBy": "user@example.com", "updatedAt": "2024-01-01T00:00:00Z"}"#;
+        let scoped: ScopedConclusion = serde_json::from_str(json).expect("Failed to deserialize");
+        assert_eq!(scoped.licenses, vec!["MIT", "Apache-2.0"]);
+        assert_eq!(scoped.last_edited_by.as_deref(), Some("user@example.com"));
+        assert_eq!(scoped.updated_at.as_deref(), Some("2024-01-01T00:00:00Z"));
+    }
+
+    #[test]
+    fn test_scoped_conclusion_empty() {
+        let json = r#"{}"#;
+        let scoped: ScopedConclusion = serde_json::from_str(json).expect("Failed to deserialize");
+        assert!(scoped.licenses.is_empty());
+        assert!(scoped.last_edited_by.is_none());
+    }
+
+    #[test]
+    fn test_base_conclusion_deserialize() {
+        let json = r#"{"licenses": ["BSD-3-Clause"], "justification": "Reviewed and approved"}"#;
+        let base: BaseConclusion = serde_json::from_str(json).expect("Failed to deserialize");
+        assert_eq!(base.licenses, vec!["BSD-3-Clause"]);
+        assert_eq!(base.justification.as_deref(), Some("Reviewed and approved"));
+    }
+
+    #[test]
+    fn test_base_conclusion_empty() {
+        let json = r#"{}"#;
+        let base: BaseConclusion = serde_json::from_str(json).expect("Failed to deserialize");
+        assert!(base.licenses.is_empty());
+        assert!(base.justification.is_none());
+    }
+
+    #[test]
+    fn test_concluded_licenses_deserialize() {
+        let json = r#"{
+            "scoped": {"licenses": ["MIT"], "lastEditedBy": "user@example.com"},
+            "base": {"licenses": ["MIT"], "justification": "Confirmed"}
+        }"#;
+        let concluded: ConcludedLicenses = serde_json::from_str(json).expect("Failed to deserialize");
+        assert!(concluded.scoped.is_some());
+        assert!(concluded.base.is_some());
+        assert_eq!(concluded.scoped.as_ref().unwrap().licenses, vec!["MIT"]);
+        assert_eq!(concluded.base.as_ref().unwrap().licenses, vec!["MIT"]);
+    }
+
+    #[test]
+    fn test_concluded_licenses_empty() {
+        let json = r#"{}"#;
+        let concluded: ConcludedLicenses = serde_json::from_str(json).expect("Failed to deserialize");
+        assert!(concluded.scoped.is_none());
+        assert!(concluded.base.is_none());
+    }
+
+    #[test]
+    fn test_dependency_root_project_deserialize() {
+        let json = r#"{
+            "title": "my-project",
+            "revision": "custom+org/my-project$main",
+            "branch": "main",
+            "conclusions": {"scoped": {"licenses": ["MIT"]}}
+        }"#;
+        let root: DependencyRootProject =
+            serde_json::from_str(json).expect("Failed to deserialize");
+        assert_eq!(root.title.as_deref(), Some("my-project"));
+        assert_eq!(
+            root.revision.as_deref(),
+            Some("custom+org/my-project$main")
+        );
+        assert_eq!(root.branch.as_deref(), Some("main"));
+        assert!(root.conclusions.is_some());
+    }
+
+    #[test]
+    fn test_dependency_root_project_minimal() {
+        let json = r#"{}"#;
+        let root: DependencyRootProject =
+            serde_json::from_str(json).expect("Failed to deserialize");
+        assert!(root.title.is_none());
+        assert!(root.revision.is_none());
+        assert!(root.branch.is_none());
+        assert!(root.conclusions.is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // Dependency Model Deserialization Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_dependency_deserialize_with_new_fields() {
+        let json = r#"{
+            "locator": "npm+lodash$4.17.21",
+            "title": "lodash",
+            "depth": 1,
+            "isManual": false,
+            "isIgnored": false,
+            "isUnknown": false,
+            "licenses": ["MIT"],
+            "declaredLicenses": ["MIT"],
+            "originPaths": ["/package.json"],
+            "packageLabels": ["production"],
+            "issues": [],
+            "status": {"resolved": true, "unsupported": false, "analyzing": false},
+            "concludedLicenses": {"base": {"licenses": ["MIT"]}},
+            "rootProjects": [{"title": "my-app", "branch": "main"}],
+            "layerDepth": 2,
+            "cpes": ["cpe:2.3:a:lodash:lodash:4.17.21:*:*:*:*:*:*:*"],
+            "vendoredPaths": [],
+            "version": "4.17.21"
+        }"#;
+
+        let dep: Dependency = serde_json::from_str(json).expect("Failed to deserialize");
+
+        assert_eq!(dep.locator, "npm+lodash$4.17.21");
+        assert!(!dep.is_unknown);
+        assert_eq!(dep.declared_licenses, vec!["MIT"]);
+        assert!(dep.status.is_some());
+        assert!(dep.status.as_ref().unwrap().resolved);
+        assert!(dep.concluded_licenses.is_some());
+        assert_eq!(dep.root_projects.len(), 1);
+        assert_eq!(dep.layer_depth, Some(2));
+        assert_eq!(dep.cpes.len(), 1);
+        assert!(dep.vendored_paths.is_empty());
+        assert_eq!(dep.version_field.as_deref(), Some("4.17.21"));
+    }
+
+    #[test]
+    fn test_dependency_deserialize_minimal() {
+        // Ensure backwards compatibility - only locator required
+        let json = r#"{"locator": "npm+test$1.0.0"}"#;
+        let dep: Dependency = serde_json::from_str(json).expect("Failed to deserialize");
+
+        assert_eq!(dep.locator, "npm+test$1.0.0");
+        assert!(!dep.is_unknown);
+        assert!(dep.declared_licenses.is_empty());
+        assert!(dep.status.is_none());
+        assert!(dep.concluded_licenses.is_none());
+        assert!(dep.root_projects.is_empty());
+        assert!(dep.layer_depth.is_none());
+        assert!(dep.cpes.is_empty());
+        assert!(dep.vendored_paths.is_empty());
+        assert!(dep.version_field.is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // Helper Method Tests
+    // -------------------------------------------------------------------------
+
+    fn make_test_dependency() -> Dependency {
+        Dependency {
+            locator: "npm+test$1.0.0".to_string(),
+            title: Some("test".to_string()),
+            depth: 1,
+            is_manual: false,
+            is_ignored: false,
+            is_unknown: false,
+            licenses: vec![],
+            declared_licenses: vec![],
+            origin_paths: vec![],
+            package_labels: vec![],
+            issues: vec![],
+            status: None,
+            concluded_licenses: None,
+            root_projects: vec![],
+            layer_depth: None,
+            cpes: vec![],
+            vendored_paths: vec![],
+            version_field: None,
+        }
+    }
+
+    #[test]
+    fn test_dependency_is_resolved() {
+        let mut dep = make_test_dependency();
+        assert!(!dep.is_resolved()); // No status = not resolved
+
+        dep.status = Some(DependencyStatus {
+            resolved: true,
+            ..Default::default()
+        });
+        assert!(dep.is_resolved());
+    }
+
+    #[test]
+    fn test_dependency_is_analyzing() {
+        let mut dep = make_test_dependency();
+        assert!(!dep.is_analyzing());
+
+        dep.status = Some(DependencyStatus {
+            analyzing: true,
+            ..Default::default()
+        });
+        assert!(dep.is_analyzing());
+    }
+
+    #[test]
+    fn test_dependency_is_unsupported() {
+        let mut dep = make_test_dependency();
+        assert!(!dep.is_unsupported());
+
+        dep.status = Some(DependencyStatus {
+            unsupported: true,
+            ..Default::default()
+        });
+        assert!(dep.is_unsupported());
+    }
+
+    #[test]
+    fn test_dependency_concluded_license_ids() {
+        let mut dep = make_test_dependency();
+        assert!(dep.concluded_license_ids().is_empty());
+
+        dep.concluded_licenses = Some(ConcludedLicenses {
+            base: Some(BaseConclusion {
+                licenses: vec!["MIT".to_string(), "Apache-2.0".to_string()],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        assert_eq!(dep.concluded_license_ids(), vec!["MIT", "Apache-2.0"]);
+    }
+
+    #[test]
+    fn test_dependency_status_error() {
+        let mut dep = make_test_dependency();
+        assert!(dep.status_error().is_none());
+
+        dep.status = Some(DependencyStatus {
+            error: Some("Resolution failed".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(dep.status_error(), Some("Resolution failed"));
+    }
+}
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -49,6 +319,42 @@ pub struct Dependency {
     /// Issues associated with this dependency.
     #[serde(default)]
     pub issues: Vec<DependencyIssue>,
+
+    /// Whether this is an unknown dependency.
+    #[serde(default, rename = "isUnknown")]
+    pub is_unknown: bool,
+
+    /// Concluded licenses for this dependency.
+    #[serde(default, rename = "concludedLicenses")]
+    pub concluded_licenses: Option<ConcludedLicenses>,
+
+    /// Declared licenses as simple strings.
+    #[serde(default, rename = "declaredLicenses")]
+    pub declared_licenses: Vec<String>,
+
+    /// Dependency resolution status.
+    #[serde(default)]
+    pub status: Option<DependencyStatus>,
+
+    /// Root projects that include this dependency.
+    #[serde(default, rename = "rootProjects")]
+    pub root_projects: Vec<DependencyRootProject>,
+
+    /// Container layer depth.
+    #[serde(default, rename = "layerDepth")]
+    pub layer_depth: Option<u32>,
+
+    /// Common Platform Enumeration identifiers.
+    #[serde(default)]
+    pub cpes: Vec<String>,
+
+    /// Paths where this dependency is vendored.
+    #[serde(default, rename = "vendoredPaths")]
+    pub vendored_paths: Vec<String>,
+
+    /// Version as a separate field (redundant with locator but provided by API).
+    #[serde(default, rename = "version")]
+    pub version_field: Option<String>,
 }
 
 impl Dependency {
@@ -82,6 +388,35 @@ impl Dependency {
     /// Get the fetcher/package manager from the locator.
     pub fn fetcher(&self) -> Option<&str> {
         self.locator.split('+').next()
+    }
+
+    /// Whether this dependency has been resolved.
+    pub fn is_resolved(&self) -> bool {
+        self.status.as_ref().is_some_and(|s| s.resolved)
+    }
+
+    /// Whether this dependency is currently being analyzed.
+    pub fn is_analyzing(&self) -> bool {
+        self.status.as_ref().is_some_and(|s| s.analyzing)
+    }
+
+    /// Whether this dependency type is unsupported.
+    pub fn is_unsupported(&self) -> bool {
+        self.status.as_ref().is_some_and(|s| s.unsupported)
+    }
+
+    /// Get the status error message, if any.
+    pub fn status_error(&self) -> Option<&str> {
+        self.status.as_ref().and_then(|s| s.error.as_deref())
+    }
+
+    /// Get the concluded license IDs (from base conclusions).
+    pub fn concluded_license_ids(&self) -> Vec<&str> {
+        self.concluded_licenses
+            .as_ref()
+            .and_then(|c| c.base.as_ref())
+            .map(|b| b.licenses.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default()
     }
 }
 
@@ -192,6 +527,87 @@ pub enum IssueStatus {
     /// Unknown status.
     #[serde(other)]
     Unknown,
+}
+
+/// Dependency resolution status.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DependencyStatus {
+    /// Error message if resolution failed.
+    #[serde(default)]
+    pub error: Option<String>,
+
+    /// Whether the dependency has been resolved.
+    #[serde(default)]
+    pub resolved: bool,
+
+    /// Whether the dependency type is unsupported.
+    #[serde(default)]
+    pub unsupported: bool,
+
+    /// Whether the dependency is currently being analyzed.
+    #[serde(default)]
+    pub analyzing: bool,
+}
+
+/// Scoped license conclusion data.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopedConclusion {
+    /// The concluded license identifiers.
+    #[serde(default)]
+    pub licenses: Vec<String>,
+
+    /// User who last edited this conclusion.
+    #[serde(default)]
+    pub last_edited_by: Option<String>,
+
+    /// When this conclusion was last updated.
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// Base license conclusion data.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BaseConclusion {
+    /// The concluded license identifiers.
+    #[serde(default)]
+    pub licenses: Vec<String>,
+
+    /// Justification for the license conclusion.
+    #[serde(default)]
+    pub justification: Option<String>,
+}
+
+/// Concluded licenses for a dependency.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ConcludedLicenses {
+    /// Scoped license conclusions.
+    #[serde(default)]
+    pub scoped: Option<ScopedConclusion>,
+
+    /// Base license conclusions.
+    #[serde(default)]
+    pub base: Option<BaseConclusion>,
+}
+
+/// A root project that includes a dependency.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DependencyRootProject {
+    /// The project title.
+    #[serde(default)]
+    pub title: Option<String>,
+
+    /// The revision locator.
+    #[serde(default)]
+    pub revision: Option<String>,
+
+    /// The branch name.
+    #[serde(default)]
+    pub branch: Option<String>,
+
+    /// License conclusions for this project context.
+    #[serde(default)]
+    pub conclusions: Option<ConcludedLicenses>,
 }
 
 /// Query parameters for listing dependencies.
