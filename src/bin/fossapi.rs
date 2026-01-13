@@ -3,7 +3,7 @@
 //! A command-line interface for interacting with the FOSSA API.
 
 use clap::Parser;
-use fossapi::cli::{Cli, Command, Entity, GetCommand};
+use fossapi::cli::{Cli, Command, Entity, GetCommand, ListCommand};
 use fossapi::{
     get_dependencies, FossaClient, Get, Issue, List, Page, Project, ProjectUpdateParams, Revision,
     Update,
@@ -37,12 +37,7 @@ async fn main() -> ExitCode {
 async fn run(client: &FossaClient, cli: Cli) -> fossapi::Result<()> {
     match cli.command {
         Command::Get { command } => handle_get(client, command, cli.json).await,
-        Command::List {
-            entity,
-            page,
-            count,
-            revision,
-        } => handle_list(client, entity, page, count, revision.as_deref(), cli.json).await,
+        Command::List { command } => handle_list(client, command, cli.json).await,
         Command::Update {
             entity,
             locator,
@@ -76,34 +71,24 @@ async fn handle_get(
 
 async fn handle_list(
     client: &FossaClient,
-    entity: Entity,
-    page: Option<u32>,
-    count: Option<u32>,
-    revision: Option<&str>,
+    command: ListCommand,
     json: bool,
 ) -> fossapi::Result<()> {
-    let page = page.unwrap_or(1);
-    let count = count.unwrap_or(20);
-
-    match entity {
-        Entity::Project => {
+    match command {
+        ListCommand::Projects { page, count } => {
+            let page = page.unwrap_or(1);
+            let count = count.unwrap_or(20);
             let projects = Project::list_page(client, &Default::default(), page, count).await?;
             output_page(&projects, json, |p| ProjectRow::from(p))?;
         }
-        Entity::Revision => {
-            eprintln!("Error: Revisions must be listed for a specific project");
-            eprintln!("Hint: Use 'fossapi get project <locator>' then 'fossapi list revisions --project <locator>'");
-            return Err(fossapi::FossaError::InvalidLocator(
-                "project locator required for revisions".to_string(),
-            ));
+        ListCommand::Issues { page, count } => {
+            let page = page.unwrap_or(1);
+            let count = count.unwrap_or(20);
+            let issues = Issue::list_page(client, &Default::default(), page, count).await?;
+            output_page(&issues, json, |i| IssueRow::from(i))?;
         }
-        Entity::Dependency => {
-            let rev = revision.ok_or_else(|| {
-                fossapi::FossaError::InvalidLocator(
-                    "--revision required for listing dependencies".to_string(),
-                )
-            })?;
-            let deps = get_dependencies(client, rev, Default::default()).await?;
+        ListCommand::Dependencies { revision } => {
+            let deps = get_dependencies(client, &revision, Default::default()).await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&deps)?);
             } else {
@@ -111,9 +96,23 @@ async fn handle_list(
                 println!("{}", Table::new(rows));
             }
         }
-        Entity::Issue => {
-            let issues = Issue::list_page(client, &Default::default(), page, count).await?;
-            output_page(&issues, json, |i| IssueRow::from(i))?;
+        ListCommand::Revisions {
+            project,
+            page,
+            count,
+        } => {
+            let page = page.unwrap_or(1);
+            let count = count.unwrap_or(20);
+            let revisions =
+                fossapi::get_revisions(client, &project, Default::default()).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&revisions)?);
+            } else {
+                let rows: Vec<RevisionRow> = revisions.iter().map(RevisionRow::from).collect();
+                println!("{}", Table::new(rows));
+                println!("\n{} revisions for {}", revisions.len(), project);
+            }
+            let _ = (page, count);
         }
     }
     Ok(())
@@ -241,6 +240,23 @@ impl From<&fossapi::Dependency> for DependencyRow {
                 .filter_map(|l| l.id())
                 .collect::<Vec<_>>()
                 .join(", "),
+        }
+    }
+}
+
+#[derive(Tabled)]
+struct RevisionRow {
+    locator: String,
+    resolved: String,
+    source: String,
+}
+
+impl From<&fossapi::Revision> for RevisionRow {
+    fn from(r: &fossapi::Revision) -> Self {
+        Self {
+            locator: r.locator.clone(),
+            resolved: if r.resolved { "yes" } else { "no" }.to_string(),
+            source: r.source.clone().unwrap_or_default(),
         }
     }
 }

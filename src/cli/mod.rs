@@ -27,20 +27,8 @@ pub enum Command {
 
     /// List entities with optional filtering and pagination.
     List {
-        /// The type of entity to list.
-        entity: Entity,
-
-        /// Page number (1-indexed).
-        #[arg(long)]
-        page: Option<u32>,
-
-        /// Number of items per page.
-        #[arg(long)]
-        count: Option<u32>,
-
-        /// Revision locator (required for dependencies).
-        #[arg(long)]
-        revision: Option<String>,
+        #[command(subcommand)]
+        command: ListCommand,
     },
 
     /// Update an entity.
@@ -81,6 +69,53 @@ pub enum GetCommand {
     Issue {
         /// The issue ID.
         id: u64,
+    },
+}
+
+/// Subcommands for the `list` command with type-safe argument parsing.
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum ListCommand {
+    /// List all projects.
+    #[command(alias = "project")]
+    Projects {
+        /// Page number (1-indexed).
+        #[arg(long)]
+        page: Option<u32>,
+
+        /// Number of items per page.
+        #[arg(long)]
+        count: Option<u32>,
+    },
+    /// List all issues.
+    #[command(alias = "issue")]
+    Issues {
+        /// Page number (1-indexed).
+        #[arg(long)]
+        page: Option<u32>,
+
+        /// Number of items per page.
+        #[arg(long)]
+        count: Option<u32>,
+    },
+    /// List dependencies for a revision.
+    #[command(alias = "dependency")]
+    Dependencies {
+        /// The revision locator (e.g., "custom+org/repo$ref").
+        revision: String,
+    },
+    /// List revisions for a project.
+    #[command(alias = "revision")]
+    Revisions {
+        /// The project locator (e.g., "custom+org/repo").
+        project: String,
+
+        /// Page number (1-indexed).
+        #[arg(long)]
+        page: Option<u32>,
+
+        /// Number of items per page.
+        #[arg(long)]
+        count: Option<u32>,
     },
 }
 
