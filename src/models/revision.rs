@@ -62,6 +62,22 @@ pub struct Revision {
     #[serde(default)]
     pub latest_revision_scan_id: Option<u64>,
 
+    /// The Hubble Analysis ID of the latest analysis.
+    #[serde(default)]
+    pub latest_hubble_analysis_id: Option<u64>,
+
+    /// The author of the Revision.
+    #[serde(default)]
+    pub author: Option<String>,
+
+    /// The link associated with the Revision.
+    #[serde(default)]
+    pub link: Option<String>,
+
+    /// The url associated with the Revision.
+    #[serde(default)]
+    pub url: Option<String>,
+
     /// Count of unresolved issues.
     #[serde(default)]
     pub unresolved_issue_count: Option<u32>,
