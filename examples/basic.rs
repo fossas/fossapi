@@ -6,7 +6,7 @@
 //! ```
 
 use fossapi::{
-    get_dependencies, DependencyListQuery, FossaClient, Get, List, Project, ProjectListQuery,
+    get_revisions, FossaClient, Get, List, Project, ProjectListQuery, RevisionListQuery,
 };
 
 #[tokio::main]
@@ -42,11 +42,29 @@ async fn main() -> fossapi::Result<()> {
         println!("  Public: {}", project.public);
         println!("  Issues: {:?}", project.issues);
 
-        // If the project has a revision, list its dependencies
-        if let Some(revision_locator) = project.latest_revision_locator() {
-            println!("\n--- Listing Dependencies for {} ---", revision_locator);
-            let deps =
-                get_dependencies(&client, revision_locator, DependencyListQuery::default()).await?;
+        // List revisions for this project
+        println!("\n--- Listing Revisions ---");
+        let revisions = get_revisions(&client, &project.id, RevisionListQuery::default()).await?;
+        println!("Found {} revisions", revisions.len());
+
+        for (i, rev) in revisions.iter().take(5).enumerate() {
+            let ref_name = rev.ref_from_locator().unwrap_or("unknown");
+            let resolved = if rev.resolved { "resolved" } else { "pending" };
+            let issues = rev.unresolved_issue_count.unwrap_or(0);
+            println!("  {}. {} - {} ({} issues)", i + 1, ref_name, resolved, issues);
+        }
+
+        // Get the first revision and show its dependencies
+        if let Some(first_rev) = revisions.first() {
+            println!("\n--- Revision Details ---");
+            println!("  Locator: {}", first_rev.locator);
+            println!("  Resolved: {}", first_rev.resolved);
+            println!("  Source: {:?}", first_rev.source);
+            println!("  Issues: {}", first_rev.issue_count());
+
+            // Get dependencies through the revision
+            println!("\n--- Dependencies via Revision ---");
+            let deps = first_rev.dependencies(&client).await?;
             println!("Found {} dependencies", deps.len());
 
             let direct: Vec<_> = deps.iter().filter(|d| d.is_direct()).collect();
