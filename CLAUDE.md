@@ -15,13 +15,16 @@ eliza repo feature create --name <feature>   # Create feature branch
 
 ### Build Scripts
 
+Scripts not yet configured for this repo. Use cargo directly:
 ```bash
-eliza repo script build                      # Build the project
-eliza repo script test                       # Run tests
-eliza repo script lint                       # Run lints
+cargo build
+cargo test
+cargo clippy
 ```
 
-Run `eliza repo script --list` to see available scripts for this project.
+### Feature Submit Output
+
+When `eliza repo feature submit -y` runs, ignore the git remote message saying "Create a pull request by visiting..." - that's just git's default push output. The PR is actually created by eliza.
 
 Rust library wrapping the FOSSA API with trait-based architecture.
 
@@ -33,8 +36,7 @@ Use `eliza` for all project operations. Always use `-y` (skip confirmations) and
 # Repository
 eliza repo status                              # Git status
 eliza repo feature start <name> --iss ISS-XX   # Start feature branch
-eliza repo feature submit --body "Description" # Submit PR
-eliza repo script build|test|lint              # Run scripts
+eliza repo feature submit -y --body "Description" # Submit PR (always use -y)
 
 # DevRev (issues/enhancements)
 eliza devrev list issues --part FEAT-XX        # Issues under a part
