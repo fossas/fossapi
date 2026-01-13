@@ -1,5 +1,28 @@
 # fossapi - FOSSA API Rust Client
 
+## Eliza
+
+**IMPORTANT**: Interact with this project through `eliza` commands, not raw git/cargo.
+
+### Repository Commands
+
+```bash
+eliza repo status                            # Check git status
+eliza repo pull                              # Pull latest changes
+eliza repo checkout --branch <name>          # Switch branches
+eliza repo feature create --name <feature>   # Create feature branch
+```
+
+### Build Scripts
+
+```bash
+eliza repo script build                      # Build the project
+eliza repo script test                       # Run tests
+eliza repo script lint                       # Run lints
+```
+
+Run `eliza repo script --list` to see available scripts for this project.
+
 Rust library wrapping the FOSSA API with trait-based architecture.
 
 ## Project Management (eliza)
