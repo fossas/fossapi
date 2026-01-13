@@ -87,8 +87,19 @@ pub use models::{
     IssueStatus,
     IssueType,
     LicenseInfo,
+    // Issue types
+    Issue,
+    IssueCategory,
+    IssueDepths,
+    IssueEpss,
+    IssueListQuery,
+    IssueProject,
+    IssueRemediation,
+    IssueSource,
+    IssueStatuses,
 };
 
 // Re-export convenience functions
 pub use models::{get_dependencies, get_dependencies_page};
+pub use models::{get_issues, get_issues_page, get_project_issues};
 pub use models::{get_revision, get_revisions, get_revisions_page};

@@ -52,8 +52,9 @@ eliza devrev link ISS-XX ENH-YY                # Link issue → enhancement
 ```mermaid
 erDiagram
     Project ||--o{ Revision : "has many"
+    Project ||--o{ Issue : "has many"
     Revision ||--o{ Dependency : "contains"
-    Revision ||--o{ IssueScan : "triggers (future)"
+    Dependency ||--o{ Issue : "flagged by"
 
     Project {
         String id "locator: custom+org/project"
@@ -78,11 +79,15 @@ erDiagram
         Vec_DependencyIssue issues
     }
 
-    IssueScan {
+    Issue {
         u64 id PK
-        String revision_locator FK
-        String status
-        DateTime completed_at
+        String issue_type "vulnerability, licensing, quality"
+        IssueSource source "affected package"
+        IssueDepths depths "direct vs transitive"
+        IssueStatuses statuses "active, ignored counts"
+        String severity "critical, high, medium, low"
+        String cve "CVE identifier (vulns only)"
+        DateTime created_at
     }
 ```
 
@@ -92,8 +97,10 @@ erDiagram
 Project (top-level container)
 ├── latest_revision: LatestRevision
 │   └── locator → can fetch full Revision
-└── revisions() → Vec<Revision>
-    └── revision.dependencies() → Vec<Dependency>
+├── revisions() → Vec<Revision>
+│   └── revision.dependencies() → Vec<Dependency>
+└── get_project_issues() → Vec<Issue>
+    └── Issues across all revisions/dependencies
 ```
 
 ## API Endpoints
@@ -104,6 +111,8 @@ Project (top-level container)
 | Project | `GET /projects/{locator}` | Single project |
 | Revisions | `GET /projects/{locator}/revisions` | Grouped by branch |
 | Dependencies | `GET /v2/revisions/{locator}/dependencies` | For a revision |
+| Issues | `GET /v2/issues` | Paginated, filterable by category/project |
+| Issue | `GET /v2/issues/{id}` | Single issue with full details |
 
 ## Traits
 
@@ -118,7 +127,18 @@ Project (top-level container)
 - **Project** - Top-level container, implements Get/List/Update
 - **Revision** - Snapshot at point in time, implements Get/List
 - **Dependency** - Package dependency, implements List only (via revision)
+- **Issue** - Vulnerability/licensing/quality issue, implements Get/List
 - **LicenseInfo** - Can be simple string ("MIT") or full object
+
+## Issue Categories
+
+Issues come in three categories with different fields:
+
+| Category | Key Fields | Description |
+|----------|------------|-------------|
+| `vulnerability` | cve, cvss, severity, remediation, epss | Security vulnerabilities |
+| `licensing` | license | License compliance issues |
+| `quality` | qualityRule | Code quality concerns |
 
 ## Future Work
 
