@@ -86,24 +86,47 @@ impl Dependency {
 }
 
 /// License information for a dependency.
+///
+/// The API can return licenses as either a simple string (e.g., "MIT")
+/// or as a full object with id, title, declared, and discovered fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LicenseInfo {
-    /// The SPDX license identifier.
-    #[serde(default)]
-    pub id: Option<String>,
+#[serde(untagged)]
+pub enum LicenseInfo {
+    /// Simple string license (e.g., "MIT", "Apache-2.0").
+    Simple(String),
+    /// Full license object with metadata.
+    Full {
+        /// The SPDX license identifier.
+        #[serde(default)]
+        id: Option<String>,
+        /// The license title.
+        #[serde(default)]
+        title: Option<String>,
+        /// Whether this license was declared in the package metadata.
+        #[serde(default)]
+        declared: bool,
+        /// Whether this license was discovered through file analysis.
+        #[serde(default)]
+        discovered: bool,
+    },
+}
 
-    /// The license title.
-    #[serde(default)]
-    pub title: Option<String>,
+impl LicenseInfo {
+    /// Get the license identifier.
+    pub fn id(&self) -> Option<&str> {
+        match self {
+            LicenseInfo::Simple(s) => Some(s.as_str()),
+            LicenseInfo::Full { id, .. } => id.as_deref(),
+        }
+    }
 
-    /// Whether this license was declared in the package metadata.
-    #[serde(default)]
-    pub declared: bool,
-
-    /// Whether this license was discovered through file analysis.
-    #[serde(default)]
-    pub discovered: bool,
+    /// Get the license title (falls back to id for simple licenses).
+    pub fn title(&self) -> Option<&str> {
+        match self {
+            LicenseInfo::Simple(s) => Some(s.as_str()),
+            LicenseInfo::Full { title, id, .. } => title.as_deref().or(id.as_deref()),
+        }
+    }
 }
 
 /// An issue associated with a dependency.
