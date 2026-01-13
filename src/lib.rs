@@ -52,6 +52,7 @@
 //! - `FOSSA_API_KEY` (required) - Your FOSSA API key
 //! - `FOSSA_API_URL` (optional) - Base URL (defaults to `https://app.fossa.com/api`)
 
+pub mod cli;
 mod client;
 mod error;
 mod models;
