@@ -13,7 +13,7 @@ use crate::error::Result;
 /// # Example
 ///
 /// ```ignore
-/// use fossa_api::{FossaClient, Project, Get};
+/// use fossapi::{FossaClient, Project, Get};
 ///
 /// let client = FossaClient::from_env()?;
 /// let project = Project::get(&client, "custom+org/project".to_string()).await?;

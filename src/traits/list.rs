@@ -20,7 +20,7 @@ const MAX_PAGES: u32 = 1000;
 /// # Example
 ///
 /// ```ignore
-/// use fossa_api::{FossaClient, Project, List};
+/// use fossapi::{FossaClient, Project, List};
 ///
 /// let client = FossaClient::from_env()?;
 ///

@@ -14,7 +14,7 @@ use url::Url;
 use crate::error::{FossaError, Result};
 
 const DEFAULT_API_URL: &str = "https://app.fossa.com/api";
-const USER_AGENT: &str = concat!("fossa-api/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("fossapi/", env!("CARGO_PKG_VERSION"));
 
 /// Low-level FOSSA API client.
 ///
@@ -27,9 +27,9 @@ const USER_AGENT: &str = concat!("fossa-api/", env!("CARGO_PKG_VERSION"));
 /// # Example
 ///
 /// ```no_run
-/// use fossa_api::FossaClient;
+/// use fossapi::FossaClient;
 ///
-/// # async fn example() -> fossa_api::Result<()> {
+/// # async fn example() -> fossapi::Result<()> {
 /// // Create from environment variables
 /// let client = FossaClient::from_env()?;
 ///

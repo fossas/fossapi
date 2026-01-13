@@ -251,7 +251,7 @@ impl List for Dependency {
 /// # Example
 ///
 /// ```ignore
-/// use fossa_api::{FossaClient, get_dependencies, DependencyListQuery};
+/// use fossapi::{FossaClient, get_dependencies, DependencyListQuery};
 ///
 /// let client = FossaClient::from_env()?;
 /// let deps = get_dependencies(

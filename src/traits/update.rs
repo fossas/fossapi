@@ -13,7 +13,7 @@ use crate::error::Result;
 /// # Example
 ///
 /// ```ignore
-/// use fossa_api::{FossaClient, Project, Update, ProjectUpdateParams};
+/// use fossapi::{FossaClient, Project, Update, ProjectUpdateParams};
 ///
 /// let client = FossaClient::from_env()?;
 /// let updated = Project::update(

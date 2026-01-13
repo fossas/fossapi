@@ -5,12 +5,12 @@
 //! FOSSA_API_KEY=your-key cargo run --example basic
 //! ```
 
-use fossa_api::{
+use fossapi::{
     get_dependencies, DependencyListQuery, FossaClient, Get, List, Project, ProjectListQuery,
 };
 
 #[tokio::main]
-async fn main() -> fossa_api::Result<()> {
+async fn main() -> fossapi::Result<()> {
     // Initialize tracing for debugging (optional)
     tracing_subscriber::fmt::init();
 

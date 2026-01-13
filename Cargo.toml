@@ -1,10 +1,10 @@
 [package]
-name = "fossa-api"
+name = "fossapi"
 version = "0.1.0"
 edition = "2021"
 description = "Rust client library for the FOSSA REST API"
 license = "MIT"
-repository = "https://github.com/fossas/fossa-api"
+repository = "https://github.com/fossas/fossapi"
 keywords = ["fossa", "api", "client", "sbom", "dependencies"]
 categories = ["api-bindings", "development-tools"]
 

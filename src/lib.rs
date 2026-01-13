@@ -7,10 +7,10 @@
 //! # Quick Start
 //!
 //! ```no_run
-//! use fossa_api::{FossaClient, Project, Dependency, Get, List};
+//! use fossapi::{FossaClient, Project, Dependency, Get, List};
 //!
 //! #[tokio::main]
-//! async fn main() -> fossa_api::Result<()> {
+//! async fn main() -> fossapi::Result<()> {
 //!     // Create client from environment variables
 //!     let client = FossaClient::from_env()?;
 //!
@@ -23,7 +23,7 @@
 //!     println!("Found {} projects", projects.len());
 //!
 //!     // List dependencies for a revision
-//!     let deps = fossa_api::get_dependencies(
+//!     let deps = fossapi::get_dependencies(
 //!         &client,
 //!         "custom+my-org/my-project$main",
 //!         Default::default(),
