@@ -123,6 +123,55 @@ impl Project {
     pub fn latest_revision_locator(&self) -> Option<&str> {
         self.latest_revision.as_ref().map(|r| r.locator.as_str())
     }
+
+    /// Get all revisions for this project.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let project = Project::get(&client, "custom+org/project".to_string()).await?;
+    /// let revisions = project.revisions(&client).await?;
+    /// for rev in revisions {
+    ///     println!("Revision: {} - {:?}", rev.locator, rev.status);
+    /// }
+    /// ```
+    pub async fn revisions(
+        &self,
+        client: &FossaClient,
+    ) -> Result<Vec<crate::models::revision::Revision>> {
+        crate::models::revision::get_revisions(
+            client,
+            &self.id,
+            crate::models::revision::RevisionListQuery::default(),
+        )
+        .await
+    }
+
+    /// Get all revisions with custom query filters.
+    pub async fn revisions_with_query(
+        &self,
+        client: &FossaClient,
+        query: crate::models::revision::RevisionListQuery,
+    ) -> Result<Vec<crate::models::revision::Revision>> {
+        crate::models::revision::get_revisions(client, &self.id, query).await
+    }
+
+    /// Get the latest revision as a full Revision model.
+    ///
+    /// Returns `None` if the project has no revisions.
+    pub async fn get_latest_revision(
+        &self,
+        client: &FossaClient,
+    ) -> Result<Option<crate::models::revision::Revision>> {
+        match &self.latest_revision {
+            Some(lr) => {
+                let revision =
+                    crate::models::revision::get_revision(client, &lr.locator).await?;
+                Ok(Some(revision))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 /// Query parameters for listing projects.

@@ -74,6 +74,13 @@ pub use models::{
     ProjectIssues,
     ProjectListQuery,
     ProjectUpdateParams,
+    // Revision types
+    Revision,
+    RevisionIssues,
+    RevisionListQuery,
+    RevisionQuery,
+    RevisionStats,
+    RevisionStatus,
     // Dependency types
     Dependency,
     DependencyIssue,
@@ -86,3 +93,4 @@ pub use models::{
 
 // Re-export convenience functions
 pub use models::{get_dependencies, get_dependencies_page};
+pub use models::{get_revision, get_revisions, get_revisions_page};
