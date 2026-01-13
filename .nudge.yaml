@@ -1,0 +1,288 @@
+version: 1
+
+rules:
+  - name: no-inline-comments
+    description: Document in CLAUDE.md with cross-linking instead of inline comments
+    message: "Document in CLAUDE.md instead. Exception: SAFETY:, TODO:, FIXME:, HACK:, NOTE: markers allowed. Fix and retry."
+    on:
+      - hook: PreToolUse
+        tool: Write
+        file: "**/*.rs"
+        content:
+          - kind: Regex
+            pattern: "(?m)^[ \\t]*//"
+      - hook: PreToolUse
+        tool: Edit
+        file: "**/*.rs"
+        new_content:
+          - kind: Regex
+            pattern: "(?m)^[ \\t]*//"
+
+  - name: no-inline-imports
+    description: Move imports to the top of the file
+    message: Move this `use` statement to the top of the file with other imports, then retry.
+    on:
+      - hook: PreToolUse
+        tool: Write
+        file: "**/*.rs"
+        content:
+          - kind: SyntaxTree
+            language: rust
+            query: |
+              (function_item
+                body: (block
+                  (use_declaration) @use))
+      - hook: PreToolUse
+        tool: Edit
+        file: "**/*.rs"
+        new_content:
+          - kind: SyntaxTree
+            language: rust
+            query: |
+              (function_item
+                body: (block
+                  (use_declaration) @use))
+
+  - name: no-lhs-type-annotations
+    description: Use type inference or turbofish instead of LHS annotations
+    message: "Remove this type annotation. Use turbofish (`collect::<Vec<_>>()`) or type inference instead, then retry."
+    on:
+      - hook: PreToolUse
+        tool: Write
+        file: "**/*.rs"
+        content:
+          - kind: Regex
+            pattern: "(?m)^\\s*let\\s+(mut\\s+)?[a-zA-Z_][a-zA-Z0-9_]*\\s*:\\s*"
+      - hook: PreToolUse
+        tool: Edit
+        file: "**/*.rs"
+        new_content:
+          - kind: Regex
+            pattern: "(?m)^\\s*let\\s+(mut\\s+)?[a-zA-Z_][a-zA-Z0-9_]*\\s*:\\s*"
+
+  - name: no-qualified-paths
+    description: Simplify qualified paths by adding imports
+    message: "Simplify this path by adding a `use` import at file top, then retry. Exception: keep qualified if it improves clarity."
+    on:
+      - hook: PreToolUse
+        tool: Write
+        file: "**/*.rs"
+        content:
+          - kind: Regex
+            pattern: "std(::[a-zA-Z_][a-zA-Z0-9_]*){2,}(::|\\(|<)"
+      - hook: PreToolUse
+        tool: Edit
+        file: "**/*.rs"
+        new_content:
+          - kind: Regex
+            pattern: "std(::[a-zA-Z_][a-zA-Z0-9_]*){2,}(::|\\(|<)"
+
+  - name: no-unwrap
+    description: Use .expect() instead of .unwrap() for better error messages
+    message: "{{ $suggestion }}"
+    on:
+      - hook: PreToolUse
+        tool: Write
+        file: "**/*.rs"
+        content:
+          - kind: Regex
+            pattern: "(?P<expr>[a-zA-Z_][a-zA-Z0-9_]*)\\.unwrap\\(\\)"
+            suggestion: 'Replace `{{ $expr }}.unwrap()` with `{{ $expr }}.expect("descriptive error message")`'
+      - hook: PreToolUse
+        tool: Edit
+        file: "**/*.rs"
+        new_content:
+          - kind: Regex
+            pattern: "(?P<expr>[a-zA-Z_][a-zA-Z0-9_]*)\\.unwrap\\(\\)"
+            suggestion: 'Replace `{{ $expr }}.unwrap()` with `{{ $expr }}.expect("descriptive error message")`'
+
+  - name: prefer-local-docs
+    description: Read local crate source instead of fetching from docs.rs
+    message: "{{ $suggestion }}"
+    on:
+      - hook: PreToolUse
+        tool: WebFetch
+        url:
+          - kind: Regex
+            pattern: "docs\\.rs/(?P<crate>[^/]+)"
+            suggestion: "Don't fetch from docs.rs. Instead, read the local source at ~/.cargo/registry/src/*/{{ $crate }}-*"
+
+  - name: deep-nesting
+    description: Avoid deeply nested control flow (high cyclomatic complexity)
+    message: |
+      Deeply nested control flow detected (4+ levels). High complexity harms readability and testability.
+      Consider: early returns, extracting helper functions, or using match guards. Fix and retry.
+    on:
+      - hook: PreToolUse
+        tool: Write
+        file: "**/*.rs"
+        content:
+          - kind: Regex
+            pattern: "(?m)^ {16,}(if |match |for |while |loop )"
+      - hook: PreToolUse
+        tool: Edit
+        file: "**/*.rs"
+        new_content:
+          - kind: Regex
+            pattern: "(?m)^ {16,}(if |match |for |while |loop )"
+
+  - name: nested-conditionals
+    description: Avoid deeply nested conditional expressions
+    message: |
+      Triple-nested conditionals detected. This is a code smell indicating high complexity.
+      Refactor using: early returns, guard clauses, or extract to helper functions. Fix and retry.
+    on:
+      - hook: PreToolUse
+        tool: Write
+        file: "**/*.rs"
+        content:
+          - kind: SyntaxTree
+            language: rust
+            query: |
+              (if_expression
+                consequence: (block
+                  (expression_statement
+                    (if_expression
+                      consequence: (block
+                        (expression_statement
+                          (if_expression) @nested))))))
+      - hook: PreToolUse
+        tool: Edit
+        file: "**/*.rs"
+        new_content:
+          - kind: SyntaxTree
+            language: rust
+            query: |
+              (if_expression
+                consequence: (block
+                  (expression_statement
+                    (if_expression
+                      consequence: (block
+                        (expression_statement
+                          (if_expression) @nested))))))
+
+  - name: todo-in-production-code
+    description: "Link TODOs to tracking issues. Format: // TODO(#123): description"
+    message: |
+      TODO comment found. Either implement now or create tracking issue.
+      Format: // TODO(ISS-XX): description. Fix and retry.
+    on:
+      - hook: PreToolUse
+        tool: Write
+        file: "**/*.rs"
+        content:
+          - kind: Regex
+            pattern: '(?m)^\s*//\s*TODO:\s*(?P<todo>.+)$'
+            suggestion: "// TODO(ISS-XX): {{ $todo }}"
+
+  - name: missing-error-context
+    description: Add context to error propagation for better debugging
+    message: |
+      Error propagated without context. Use .context("what failed")?
+      This preserves error chain. Fix and retry.
+    on:
+      - hook: PreToolUse
+        tool: Write
+        file: "**/*.rs"
+        content:
+          - kind: Regex
+            pattern: '[^)]\?\s*;'
+            suggestion: '.context("describe what failed")?;'
+      - hook: PreToolUse
+        tool: Edit
+        file: "**/*.rs"
+        new_content:
+          - kind: Regex
+            pattern: '[^)]\?\s*;'
+            suggestion: '.context("describe what failed")?;'
+
+  - name: prefer-newtypes-for-ids
+    description: Use newtypes for identifiers instead of bare String
+    message: |
+      Use a newtype (e.g., `ProjectLocator`, `RevisionLocator`) instead of bare `String` for ID fields.
+      Newtypes provide compile-time safety and prevent mixing different ID types. Fix and retry.
+    on:
+      - hook: PreToolUse
+        tool: Write
+        file: "**/*.rs"
+        content:
+          - kind: Regex
+            pattern: '\w+_id\s*:\s*String'
+      - hook: PreToolUse
+        tool: Edit
+        file: "**/*.rs"
+        new_content:
+          - kind: Regex
+            pattern: '\w+_id\s*:\s*String'
+
+  - name: prefer-str-over-string-params
+    description: Prefer &str over String for function parameters when ownership isn't needed
+    message: |
+      Consider using `&str` instead of `String` for this parameter.
+      Only use `String` when the function needs ownership. Fix and retry.
+    on:
+      - hook: PreToolUse
+        tool: Write
+        file: "**/*.rs"
+        content:
+          - kind: Regex
+            pattern: 'fn \w+\([^)]*\w+:\s*String[,)]'
+      - hook: PreToolUse
+        tool: Edit
+        file: "**/*.rs"
+        new_content:
+          - kind: Regex
+            pattern: 'fn \w+\([^)]*\w+:\s*String[,)]'
+
+  - name: module-size-warning
+    description: Keep modules focused and under ~300 LOC
+    message: |
+      This file is getting large. Consider splitting into focused submodules.
+      Keep modules under ~300 LOC for maintainability. Fix and retry.
+    on:
+      - hook: PreToolUse
+        tool: Write
+        file: "**/*.rs"
+        content:
+          - kind: Regex
+            pattern: '(?s)(\n.*){300,}'
+
+  - name: no-stubbed-implementations
+    description: Catch stubbed implementations that pretend to work
+    message: |
+      Stubbed implementation detected. Either:
+      1. Fully implement the function, OR
+      2. Use `unimplemented!("Blocked on ISS-XX: reason")` to be explicit
+      Never ship silent stubs that return Ok(()). Fix and retry.
+    on:
+      - hook: PreToolUse
+        tool: Write
+        file: "**/*.rs"
+        content:
+          - kind: Regex
+            pattern: '(?s)//\s*TODO.*\n\s*Ok\(\(\)\)'
+      - hook: PreToolUse
+        tool: Edit
+        file: "**/*.rs"
+        new_content:
+          - kind: Regex
+            pattern: '(?s)//\s*TODO.*\n\s*Ok\(\(\)\)'
+
+  - name: no-lock-poisoned-expect
+    description: Use parking_lot::Mutex instead of std Mutex
+    message: |
+      Don't use `.expect("lock poisoned")`. Use `parking_lot::Mutex` which doesn't poison.
+      Fix and retry.
+    on:
+      - hook: PreToolUse
+        tool: Write
+        file: "**/*.rs"
+        content:
+          - kind: Regex
+            pattern: '\.expect\([^)]*poison'
+      - hook: PreToolUse
+        tool: Edit
+        file: "**/*.rs"
+        new_content:
+          - kind: Regex
+            pattern: '\.expect\([^)]*poison'

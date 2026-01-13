@@ -1,0 +1,5 @@
+# Per-project eliza configuration for fossapi
+
+devrev:
+  require_slug: true
+  issue_subtype: eliza_bug
