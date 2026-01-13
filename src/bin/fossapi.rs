@@ -43,7 +43,8 @@ async fn run(client: &FossaClient, cli: Cli) -> fossapi::Result<()> {
             locator,
             title,
             description,
-        } => handle_update(client, entity, &locator, title, description, cli.json).await,
+            public,
+        } => handle_update(client, entity, &locator, title, description, public, cli.json).await,
     }
 }
 
@@ -124,6 +125,7 @@ async fn handle_update(
     locator: &str,
     title: Option<String>,
     description: Option<String>,
+    public: Option<bool>,
     json: bool,
 ) -> fossapi::Result<()> {
     match entity {
@@ -131,6 +133,7 @@ async fn handle_update(
             let params = ProjectUpdateParams {
                 title,
                 description,
+                public,
                 ..Default::default()
             };
             let project = Project::update(client, locator.to_string(), params).await?;

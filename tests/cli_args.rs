@@ -219,3 +219,84 @@ fn test_list_revisions_with_pagination() {
         _ => panic!("Expected ListCommand::Revisions"),
     }
 }
+
+// =============================================================================
+// TDD Tests for ISS-10845: UpdateCommand CLI parsing
+// =============================================================================
+
+#[test]
+fn test_update_project_parses_locator() {
+    let cli = Cli::parse_from(["fossapi", "update", "project", "custom+acme/myapp"]);
+    match cli.command {
+        Command::Update { entity, locator, .. } => {
+            assert!(matches!(entity, Entity::Project));
+            assert_eq!(locator, "custom+acme/myapp");
+        }
+        _ => panic!("Expected Update command"),
+    }
+}
+
+#[test]
+fn test_update_project_title_flag() {
+    let cli = Cli::parse_from([
+        "fossapi",
+        "update",
+        "project",
+        "custom+acme/myapp",
+        "--title",
+        "New Title",
+    ]);
+    match cli.command {
+        Command::Update { title, .. } => {
+            assert_eq!(title, Some("New Title".to_string()));
+        }
+        _ => panic!("Expected Update command"),
+    }
+}
+
+#[test]
+fn test_update_project_public_flag() {
+    let cli = Cli::parse_from([
+        "fossapi",
+        "update",
+        "project",
+        "custom+acme/myapp",
+        "--public",
+        "true",
+    ]);
+    match cli.command {
+        Command::Update { public, .. } => {
+            assert_eq!(public, Some(true));
+        }
+        _ => panic!("Expected Update command"),
+    }
+}
+
+#[test]
+fn test_update_project_multiple_flags() {
+    let cli = Cli::parse_from([
+        "fossapi",
+        "update",
+        "project",
+        "custom+acme/myapp",
+        "--title",
+        "New Title",
+        "--public",
+        "false",
+    ]);
+    match cli.command {
+        Command::Update {
+            entity,
+            locator,
+            title,
+            public,
+            ..
+        } => {
+            assert!(matches!(entity, Entity::Project));
+            assert_eq!(locator, "custom+acme/myapp");
+            assert_eq!(title, Some("New Title".to_string()));
+            assert_eq!(public, Some(false));
+        }
+        _ => panic!("Expected Update command"),
+    }
+}

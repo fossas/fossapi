@@ -46,6 +46,10 @@ pub enum Command {
         /// New description for the entity.
         #[arg(long)]
         description: Option<String>,
+
+        /// Set project visibility (true = public, false = private).
+        #[arg(long)]
+        public: Option<bool>,
     },
 }
 
