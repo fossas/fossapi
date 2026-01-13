@@ -1,5 +1,7 @@
 //! Revision model and trait implementations.
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -20,41 +22,68 @@ pub struct Revision {
     /// The revision locator (e.g., "custom+58216/github.com/org/repo$main").
     pub locator: String,
 
-    /// The branch, tag, or commit reference.
-    #[serde(default, alias = "branch")]
-    pub ref_name: Option<String>,
+    /// The parent project ID.
+    #[serde(default)]
+    pub project_id: Option<String>,
 
-    /// Revision message (typically commit message).
+    /// Whether the revision has been resolved/analyzed.
+    #[serde(default)]
+    pub resolved: bool,
+
+    /// Source type (e.g., "cargo", "npm", "pip").
+    #[serde(default)]
+    pub source_type: Option<String>,
+
+    /// Analysis source (e.g., "cli", "api").
+    #[serde(default)]
+    pub source: Option<String>,
+
+    /// Revision message (typically a formatted timestamp).
     #[serde(default)]
     pub message: Option<String>,
 
+    /// Error message if analysis failed.
+    #[serde(default)]
+    pub error: Option<String>,
+
     /// When the revision was created/uploaded.
-    #[serde(rename = "createdAt", default)]
+    #[serde(default)]
     pub created_at: Option<DateTime<Utc>>,
 
     /// When the revision was last updated.
-    #[serde(rename = "updatedAt", default)]
+    #[serde(default)]
     pub updated_at: Option<DateTime<Utc>>,
 
-    /// Build/analysis status.
+    /// Revision timestamp string.
     #[serde(default)]
-    pub status: Option<RevisionStatus>,
+    pub revision_timestamp: Option<String>,
 
-    /// Issue counts for this revision.
+    /// Latest revision scan ID.
     #[serde(default)]
-    pub issues: Option<RevisionIssues>,
+    pub latest_revision_scan_id: Option<u64>,
 
-    /// Dependency statistics.
+    /// Count of unresolved issues.
     #[serde(default)]
-    pub stats: Option<RevisionStats>,
+    pub unresolved_issue_count: Option<u32>,
 
-    /// Whether this is the default/latest revision.
-    #[serde(rename = "isDefault", default)]
-    pub is_default: bool,
+    /// Structured locator information.
+    #[serde(default)]
+    pub loc: Option<RevisionLoc>,
+}
 
-    /// Policy ID applied to this revision.
-    #[serde(rename = "policyId", default)]
-    pub policy_id: Option<u64>,
+/// Structured locator information.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RevisionLoc {
+    /// The fetcher type (e.g., "custom", "git").
+    #[serde(default)]
+    pub fetcher: Option<String>,
+    /// The package identifier.
+    #[serde(default)]
+    pub package: Option<String>,
+    /// The revision identifier.
+    #[serde(default)]
+    pub revision: Option<String>,
 }
 
 impl Revision {
@@ -73,27 +102,25 @@ impl Revision {
 
     /// Get the fetcher type from the locator (e.g., "custom", "git").
     pub fn fetcher(&self) -> Option<&str> {
-        self.locator.split('+').next()
+        self.loc
+            .as_ref()
+            .and_then(|l| l.fetcher.as_deref())
+            .or_else(|| self.locator.split('+').next())
     }
 
     /// Check if the revision analysis has completed successfully.
     pub fn is_analyzed(&self) -> bool {
-        matches!(self.status, Some(RevisionStatus::Passed))
+        self.resolved
     }
 
     /// Check if the revision has any issues.
     pub fn has_issues(&self) -> bool {
-        self.issues.as_ref().map_or(false, |i| i.total > 0)
+        self.unresolved_issue_count.map_or(false, |c| c > 0)
     }
 
-    /// Get direct dependency count.
-    pub fn direct_dependency_count(&self) -> u32 {
-        self.stats.as_ref().map_or(0, |s| s.direct_dependencies)
-    }
-
-    /// Get total dependency count.
-    pub fn total_dependency_count(&self) -> u32 {
-        self.stats.as_ref().map_or(0, |s| s.total_dependencies)
+    /// Get the issue count for this revision.
+    pub fn issue_count(&self) -> u32 {
+        self.unresolved_issue_count.unwrap_or(0)
     }
 
     /// Get all dependencies for this revision.
@@ -129,88 +156,23 @@ impl Revision {
     }
 }
 
-/// Status of a revision's analysis.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum RevisionStatus {
-    /// Analysis is pending.
-    #[default]
-    Pending,
-    /// Analysis is running.
-    Running,
-    /// Analysis completed successfully.
-    Passed,
-    /// Analysis failed.
-    Failed,
-    /// Analysis was skipped.
-    Skipped,
-    /// Unknown status.
-    #[serde(other)]
-    Unknown,
-}
-
-/// Issue counts for a revision.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RevisionIssues {
-    /// Total number of issues.
-    #[serde(default)]
-    pub total: u32,
-    /// Number of licensing issues.
-    #[serde(default)]
-    pub licensing: u32,
-    /// Number of security/vulnerability issues.
-    #[serde(default)]
-    pub security: u32,
-    /// Number of quality issues.
-    #[serde(default)]
-    pub quality: u32,
-}
-
-/// Dependency statistics for a revision.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RevisionStats {
-    /// Total dependency count.
-    #[serde(default)]
-    pub total_dependencies: u32,
-    /// Direct dependency count.
-    #[serde(default)]
-    pub direct_dependencies: u32,
-    /// Transitive dependency count.
-    #[serde(default)]
-    pub transitive_dependencies: u32,
-}
-
 /// Query parameters for listing revisions of a project.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct RevisionListQuery {
-    /// Filter by branch/ref name.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Filter by branch/ref name (client-side filtering).
+    #[serde(skip_serializing)]
     pub branch: Option<String>,
-
-    /// Filter by status.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<RevisionStatus>,
-
-    /// Sort order (e.g., "created_at", "-created_at").
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sort: Option<String>,
-
-    /// Include only default/latest revisions per branch.
-    #[serde(rename = "defaultOnly", skip_serializing_if = "Option::is_none")]
-    pub default_only: Option<bool>,
 }
 
 /// Query type for revision listing (includes project locator).
 pub type RevisionQuery = (String, RevisionListQuery);
 
-/// API response wrapper for listing revisions.
+/// API response wrapper for listing revisions (grouped by branch).
 #[derive(Debug, Deserialize)]
 struct RevisionListResponse {
-    revisions: Vec<Revision>,
+    /// Revisions grouped by branch name.
     #[serde(default)]
-    total: Option<u64>,
+    branch: HashMap<String, Vec<Revision>>,
 }
 
 #[async_trait]
@@ -220,7 +182,8 @@ impl Get for Revision {
     #[tracing::instrument(skip(client))]
     async fn get(client: &FossaClient, locator: String) -> Result<Self> {
         let encoded_locator = urlencoding::encode(&locator);
-        let path = format!("v2/revisions/{}", encoded_locator);
+        // Note: Single revision endpoint may differ - using revisions list and filtering
+        let path = format!("revisions/{}", encoded_locator);
 
         let response = client.get(&path).await?;
         let revision: Revision = response.json().await.map_err(FossaError::HttpError)?;
@@ -241,26 +204,36 @@ impl List for Revision {
     ) -> Result<Page<Self>> {
         let (project_locator, filters) = query;
         let encoded_locator = urlencoding::encode(project_locator);
-        let path = format!("v2/projects/{}/revisions", encoded_locator);
+        let path = format!("projects/{}/revisions", encoded_locator);
 
-        #[derive(Serialize)]
-        struct RequestParams<'a> {
-            #[serde(flatten)]
-            query: &'a RevisionListQuery,
-            page: u32,
-            count: u32,
-        }
-
-        let params = RequestParams {
-            query: filters,
-            page,
-            count,
-        };
-
-        let response = client.get_with_query(&path, &params).await?;
+        // The API returns all revisions grouped by branch (no server-side pagination)
+        let response = client.get(&path).await?;
         let data: RevisionListResponse = response.json().await.map_err(FossaError::HttpError)?;
 
-        Ok(Page::new(data.revisions, page, count, data.total))
+        // Flatten all branches into a single list
+        let mut all_revisions: Vec<Revision> = data
+            .branch
+            .into_iter()
+            .filter(|(branch_name, _)| {
+                // Apply client-side branch filter if specified
+                filters
+                    .branch
+                    .as_ref()
+                    .map_or(true, |filter| branch_name == filter)
+            })
+            .flat_map(|(_, revisions)| revisions)
+            .collect();
+
+        // Sort by created_at descending (newest first)
+        all_revisions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+        let total = all_revisions.len() as u64;
+
+        // Apply client-side pagination
+        let start = ((page - 1) * count) as usize;
+        let items: Vec<Revision> = all_revisions.into_iter().skip(start).take(count as usize).collect();
+
+        Ok(Page::new(items, page, count, Some(total)))
     }
 }
 

@@ -76,11 +76,9 @@ pub use models::{
     ProjectUpdateParams,
     // Revision types
     Revision,
-    RevisionIssues,
     RevisionListQuery,
+    RevisionLoc,
     RevisionQuery,
-    RevisionStats,
-    RevisionStatus,
     // Dependency types
     Dependency,
     DependencyIssue,
