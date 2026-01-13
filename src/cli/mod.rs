@@ -21,11 +21,8 @@ pub struct Cli {
 pub enum Command {
     /// Get a single entity by locator or ID.
     Get {
-        /// The type of entity to get.
-        entity: Entity,
-
-        /// The locator (projects/revisions/dependencies) or ID (issues).
-        locator: String,
+        #[command(subcommand)]
+        command: GetCommand,
     },
 
     /// List entities with optional filtering and pagination.
@@ -61,6 +58,29 @@ pub enum Command {
         /// New description for the entity.
         #[arg(long)]
         description: Option<String>,
+    },
+}
+
+/// Subcommands for the `get` command with type-safe ID parsing.
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum GetCommand {
+    /// Get a project by locator.
+    #[command(alias = "projects")]
+    Project {
+        /// The project locator (e.g., "custom+org/repo").
+        locator: String,
+    },
+    /// Get a revision by locator.
+    #[command(alias = "revisions")]
+    Revision {
+        /// The revision locator (e.g., "custom+org/repo$ref").
+        locator: String,
+    },
+    /// Get an issue by numeric ID.
+    #[command(alias = "issues")]
+    Issue {
+        /// The issue ID.
+        id: u64,
     },
 }
 
