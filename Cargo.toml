@@ -33,6 +33,10 @@ async-trait = "0.1"
 # Tracing/logging
 tracing = "0.1"
 
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+tabled = "0.17"
+
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
 
@@ -40,6 +44,10 @@ chrono = { version = "0.4", features = ["serde"] }
 tokio-test = "0.4"
 tracing-subscriber = "0.3"
 serde_qs = "0.13"
+
+[[bin]]
+name = "fossapi"
+path = "src/bin/fossapi.rs"
 
 [[example]]
 name = "basic"
