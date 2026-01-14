@@ -51,6 +51,13 @@ pub enum Command {
         #[arg(long)]
         public: Option<bool>,
     },
+
+    /// Run the MCP server on stdio.
+    Mcp {
+        /// Enable verbose (debug) logging.
+        #[arg(long)]
+        verbose: bool,
+    },
 }
 
 /// Subcommands for the `get` command with type-safe ID parsing.
