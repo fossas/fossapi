@@ -55,6 +55,7 @@
 pub mod cli;
 mod client;
 mod error;
+pub mod mcp;
 mod models;
 pub mod output;
 mod pagination;
