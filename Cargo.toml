@@ -45,6 +45,14 @@ tabled = "0.17"
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
 
+# Mock server dependencies (feature-gated, for testing)
+axum = { version = "0.7", optional = true }
+tower = { version = "0.5", optional = true }
+
+[features]
+default = []
+test-server = ["dep:axum", "dep:tower"]
+
 [dev-dependencies]
 tokio-test = "0.4"
 tracing-subscriber = "0.3"

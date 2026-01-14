@@ -61,6 +61,9 @@ pub mod output;
 mod pagination;
 mod traits;
 
+#[cfg(feature = "test-server")]
+pub mod mock_server;
+
 // Re-export core types
 pub use client::FossaClient;
 pub use error::{FossaError, Result};
