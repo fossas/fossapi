@@ -618,4 +618,347 @@ mod tests {
         let _ = server.handle_list(params).await;
         // Mock expectations verify count was capped
     }
+
+    // =========================================================================
+    // MCP Get Tool Handler Tests
+    // =========================================================================
+
+    #[tokio::test]
+    async fn handle_get_project_returns_json() {
+        let mock_server = MockServer::start().await;
+
+        let project_json = serde_json::json!({
+            "id": "custom+123/test-project",
+            "title": "Test Project",
+            "public": false,
+            "labels": [],
+            "teams": []
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/projects/custom%2B123%2Ftest-project"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&project_json))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = GetParams {
+            entity: EntityType::Project,
+            id: "custom+123/test-project".to_string(),
+        };
+
+        let result = server.handle_get(params).await.expect("handle_get should succeed");
+
+        assert!(!result.is_error.unwrap_or(false));
+        let content = &result.content[0];
+        if let rmcp::model::RawContent::Text(text) = &content.raw {
+            assert!(text.text.contains("Test Project"));
+            assert!(text.text.contains("custom+123/test-project"));
+        } else {
+            panic!("Expected text content");
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_get_revision_returns_json() {
+        let mock_server = MockServer::start().await;
+
+        let revision_json = serde_json::json!({
+            "locator": "custom+123/test$main",
+            "resolved": true,
+            "sourceType": "cargo"
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/revisions/custom%2B123%2Ftest%24main"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&revision_json))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = GetParams {
+            entity: EntityType::Revision,
+            id: "custom+123/test$main".to_string(),
+        };
+
+        let result = server.handle_get(params).await.expect("handle_get should succeed");
+
+        assert!(!result.is_error.unwrap_or(false));
+        let content = &result.content[0];
+        if let rmcp::model::RawContent::Text(text) = &content.raw {
+            assert!(text.text.contains("custom+123/test$main"));
+            assert!(text.text.contains("resolved"));
+        } else {
+            panic!("Expected text content");
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_get_issue_returns_json() {
+        let mock_server = MockServer::start().await;
+
+        let issue_json = serde_json::json!({
+            "id": 12345,
+            "type": "vulnerability",
+            "source": {"id": "npm+lodash$4.17.0"},
+            "depths": {"direct": 1, "deep": 0},
+            "statuses": {"active": 1, "ignored": 0},
+            "projects": [],
+            "cve": "CVE-2024-0001",
+            "severity": "high"
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/v2/issues/12345"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&issue_json))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = GetParams {
+            entity: EntityType::Issue,
+            id: "12345".to_string(),
+        };
+
+        let result = server.handle_get(params).await.expect("handle_get should succeed");
+
+        assert!(!result.is_error.unwrap_or(false));
+        let content = &result.content[0];
+        if let rmcp::model::RawContent::Text(text) = &content.raw {
+            assert!(text.text.contains("12345"));
+            assert!(text.text.contains("vulnerability"));
+            assert!(text.text.contains("CVE-2024-0001"));
+        } else {
+            panic!("Expected text content");
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_get_dependency_returns_error() {
+        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
+        let server = FossaServer::new(client);
+
+        let params = GetParams {
+            entity: EntityType::Dependency,
+            id: "npm+lodash$4.17.21".to_string(),
+        };
+
+        let result = server.handle_get(params).await;
+
+        let err = result.expect_err("get dependency should fail");
+        let err_msg = format!("{:?}", err);
+        assert!(
+            err_msg.contains("does not support get") || err_msg.contains("list with a parent"),
+            "Error should mention dependency doesn't support get: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_get_issue_with_invalid_id_returns_error() {
+        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
+        let server = FossaServer::new(client);
+
+        let params = GetParams {
+            entity: EntityType::Issue,
+            id: "not-a-number".to_string(),
+        };
+
+        let result = server.handle_get(params).await;
+
+        let err = result.expect_err("get issue with invalid ID should fail");
+        let err_msg = format!("{:?}", err);
+        assert!(
+            err_msg.contains("must be a number"),
+            "Error should mention issue ID must be numeric: {}",
+            err_msg
+        );
+    }
+
+    // =========================================================================
+    // ISS-10859: MCP Update Tool Handler Tests
+    // =========================================================================
+
+    #[tokio::test]
+    async fn handle_update_revision_returns_error() {
+        // Create a minimal client (won't be used since revision update fails early)
+        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
+        let server = FossaServer::new(client);
+
+        let params = UpdateParams {
+            entity: EntityType::Revision,
+            locator: "custom+org/repo$main".to_string(),
+            title: Some("New Title".to_string()),
+            description: None,
+            url: None,
+            public: None,
+        };
+
+        let result = server.handle_update(params).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("not supported"));
+    }
+
+    #[tokio::test]
+    async fn handle_update_issue_returns_error() {
+        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
+        let server = FossaServer::new(client);
+
+        let params = UpdateParams {
+            entity: EntityType::Issue,
+            locator: "12345".to_string(),
+            title: Some("New Title".to_string()),
+            description: None,
+            url: None,
+            public: None,
+        };
+
+        let result = server.handle_update(params).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("not supported"));
+    }
+
+    #[tokio::test]
+    async fn handle_update_dependency_returns_error() {
+        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
+        let server = FossaServer::new(client);
+
+        let params = UpdateParams {
+            entity: EntityType::Dependency,
+            locator: "npm+lodash$4.17.21".to_string(),
+            title: Some("New Title".to_string()),
+            description: None,
+            url: None,
+            public: None,
+        };
+
+        let result = server.handle_update(params).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("not supported"));
+    }
+
+    #[tokio::test]
+    async fn handle_update_project_title_succeeds() {
+        use wiremock::matchers::body_json;
+
+        let mock_server = MockServer::start().await;
+
+        let expected_body = serde_json::json!({
+            "title": "Updated Title"
+        });
+
+        let response_project = serde_json::json!({
+            "id": "custom+acme/myapp",
+            "title": "Updated Title",
+            "public": false,
+            "labels": [],
+            "teams": []
+        });
+
+        Mock::given(method("PUT"))
+            .and(path("/projects/custom%2Bacme%2Fmyapp"))
+            .and(body_json(&expected_body))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response_project))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = UpdateParams {
+            entity: EntityType::Project,
+            locator: "custom+acme/myapp".to_string(),
+            title: Some("Updated Title".to_string()),
+            description: None,
+            url: None,
+            public: None,
+        };
+
+        let result = server.handle_update(params).await;
+
+        assert!(result.is_ok());
+        let call_result = result.unwrap();
+        assert!(!call_result.is_error.unwrap_or(false));
+
+        // Verify the response contains the updated title
+        let content = &call_result.content[0];
+        if let rmcp::model::RawContent::Text(text) = &content.raw {
+            assert!(text.text.contains("Updated Title"));
+        } else {
+            panic!("Expected text content");
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_update_project_description_succeeds() {
+        use wiremock::matchers::body_json;
+
+        let mock_server = MockServer::start().await;
+
+        let expected_body = serde_json::json!({
+            "description": "New project description"
+        });
+
+        let response_project = serde_json::json!({
+            "id": "custom+acme/myapp",
+            "title": "My App",
+            "description": "New project description",
+            "public": false,
+            "labels": [],
+            "teams": []
+        });
+
+        Mock::given(method("PUT"))
+            .and(path("/projects/custom%2Bacme%2Fmyapp"))
+            .and(body_json(&expected_body))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response_project))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = UpdateParams {
+            entity: EntityType::Project,
+            locator: "custom+acme/myapp".to_string(),
+            title: None,
+            description: Some("New project description".to_string()),
+            url: None,
+            public: None,
+        };
+
+        let result = server.handle_update(params).await;
+
+        assert!(result.is_ok());
+        let call_result = result.unwrap();
+        assert!(!call_result.is_error.unwrap_or(false));
+
+        // Verify the response contains valid project data
+        // Note: The Project struct doesn't have a description field,
+        // so we verify the locator is correct (wiremock verifies the request body)
+        let content = &call_result.content[0];
+        if let rmcp::model::RawContent::Text(text) = &content.raw {
+            assert!(text.text.contains("custom+acme/myapp"));
+            assert!(text.text.contains("My App"));
+        } else {
+            panic!("Expected text content");
+        }
+    }
 }
