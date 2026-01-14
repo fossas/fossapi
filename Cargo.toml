@@ -19,6 +19,10 @@ reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "deflate"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_with = { version = "3", features = ["base64"] }
+schemars = "0.8"
+
+# MCP server
+rmcp = { version = "0.1", features = ["transport-io"] }
 
 # URL handling
 url = { version = "2", features = ["serde"] }
