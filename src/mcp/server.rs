@@ -620,6 +620,171 @@ mod tests {
     }
 
     // =========================================================================
+    // MCP Get Tool Handler Tests
+    // =========================================================================
+
+    #[tokio::test]
+    async fn handle_get_project_returns_json() {
+        let mock_server = MockServer::start().await;
+
+        let project_json = serde_json::json!({
+            "id": "custom+123/test-project",
+            "title": "Test Project",
+            "public": false,
+            "labels": [],
+            "teams": []
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/projects/custom%2B123%2Ftest-project"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&project_json))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = GetParams {
+            entity: EntityType::Project,
+            id: "custom+123/test-project".to_string(),
+        };
+
+        let result = server.handle_get(params).await.expect("handle_get should succeed");
+
+        assert!(!result.is_error.unwrap_or(false));
+        let content = &result.content[0];
+        if let rmcp::model::RawContent::Text(text) = &content.raw {
+            assert!(text.text.contains("Test Project"));
+            assert!(text.text.contains("custom+123/test-project"));
+        } else {
+            panic!("Expected text content");
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_get_revision_returns_json() {
+        let mock_server = MockServer::start().await;
+
+        let revision_json = serde_json::json!({
+            "locator": "custom+123/test$main",
+            "resolved": true,
+            "sourceType": "cargo"
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/revisions/custom%2B123%2Ftest%24main"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&revision_json))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = GetParams {
+            entity: EntityType::Revision,
+            id: "custom+123/test$main".to_string(),
+        };
+
+        let result = server.handle_get(params).await.expect("handle_get should succeed");
+
+        assert!(!result.is_error.unwrap_or(false));
+        let content = &result.content[0];
+        if let rmcp::model::RawContent::Text(text) = &content.raw {
+            assert!(text.text.contains("custom+123/test$main"));
+            assert!(text.text.contains("resolved"));
+        } else {
+            panic!("Expected text content");
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_get_issue_returns_json() {
+        let mock_server = MockServer::start().await;
+
+        let issue_json = serde_json::json!({
+            "id": 12345,
+            "type": "vulnerability",
+            "source": {"id": "npm+lodash$4.17.0"},
+            "depths": {"direct": 1, "deep": 0},
+            "statuses": {"active": 1, "ignored": 0},
+            "projects": [],
+            "cve": "CVE-2024-0001",
+            "severity": "high"
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/v2/issues/12345"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&issue_json))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = GetParams {
+            entity: EntityType::Issue,
+            id: "12345".to_string(),
+        };
+
+        let result = server.handle_get(params).await.expect("handle_get should succeed");
+
+        assert!(!result.is_error.unwrap_or(false));
+        let content = &result.content[0];
+        if let rmcp::model::RawContent::Text(text) = &content.raw {
+            assert!(text.text.contains("12345"));
+            assert!(text.text.contains("vulnerability"));
+            assert!(text.text.contains("CVE-2024-0001"));
+        } else {
+            panic!("Expected text content");
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_get_dependency_returns_error() {
+        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
+        let server = FossaServer::new(client);
+
+        let params = GetParams {
+            entity: EntityType::Dependency,
+            id: "npm+lodash$4.17.21".to_string(),
+        };
+
+        let result = server.handle_get(params).await;
+
+        let err = result.expect_err("get dependency should fail");
+        let err_msg = format!("{:?}", err);
+        assert!(
+            err_msg.contains("does not support get") || err_msg.contains("list with a parent"),
+            "Error should mention dependency doesn't support get: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_get_issue_with_invalid_id_returns_error() {
+        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
+        let server = FossaServer::new(client);
+
+        let params = GetParams {
+            entity: EntityType::Issue,
+            id: "not-a-number".to_string(),
+        };
+
+        let result = server.handle_get(params).await;
+
+        let err = result.expect_err("get issue with invalid ID should fail");
+        let err_msg = format!("{:?}", err);
+        assert!(
+            err_msg.contains("must be a number"),
+            "Error should mention issue ID must be numeric: {}",
+            err_msg
+        );
+    }
+
+    // =========================================================================
     // ISS-10859: MCP Update Tool Handler Tests
     // =========================================================================
 
