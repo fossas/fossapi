@@ -5,8 +5,8 @@
 use clap::Parser;
 use fossapi::cli::{Cli, Command, Entity, GetCommand, ListCommand};
 use fossapi::{
-    get_dependencies, FossaClient, Get, Issue, List, Page, Project, ProjectUpdateParams, Revision,
-    Update,
+    get_dependencies, FossaClient, Get, Issue, List, Page, PrettyPrint, Project,
+    ProjectUpdateParams, Revision, Update,
 };
 use serde::Serialize;
 use std::process::ExitCode;
@@ -149,9 +149,12 @@ async fn handle_update(
     Ok(())
 }
 
-fn output_single<T: Serialize>(item: &T, _json: bool) -> fossapi::Result<()> {
-    // TODO: Add table output for single items when json=false
-    println!("{}", serde_json::to_string_pretty(item)?);
+fn output_single<T: Serialize + PrettyPrint>(item: &T, json: bool) -> fossapi::Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(item)?);
+    } else {
+        println!("{}", item.pretty_print());
+    }
     Ok(())
 }
 

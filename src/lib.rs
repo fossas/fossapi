@@ -56,6 +56,7 @@ pub mod cli;
 mod client;
 mod error;
 mod models;
+pub mod output;
 mod pagination;
 mod traits;
 
@@ -65,6 +66,7 @@ pub use error::{FossaError, Result};
 pub use pagination::{Page, PaginationParams};
 
 // Re-export traits
+pub use output::PrettyPrint;
 pub use traits::{Get, List, Update};
 
 // Re-export models
