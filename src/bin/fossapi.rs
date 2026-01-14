@@ -45,6 +45,7 @@ async fn run(client: &FossaClient, cli: Cli) -> fossapi::Result<()> {
             description,
             public,
         } => handle_update(client, entity, &locator, title, description, public, cli.json).await,
+        Command::Mcp { verbose } => handle_mcp(client, verbose).await,
     }
 }
 
@@ -147,6 +148,30 @@ async fn handle_update(
             ));
         }
     }
+    Ok(())
+}
+
+async fn handle_mcp(client: &FossaClient, verbose: bool) -> fossapi::Result<()> {
+    use fossapi::mcp::FossaServer;
+    use rmcp::ServiceExt;
+
+    if verbose {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_writer(std::io::stderr)
+            .init();
+    }
+
+    let server = FossaServer::new(client.clone());
+    let transport = rmcp::transport::stdio();
+    let service = server.serve(transport).await.map_err(|e| {
+        fossapi::FossaError::ConfigMissing(format!("MCP transport error: {e}"))
+    })?;
+
+    service.waiting().await.map_err(|e| {
+        fossapi::FossaError::ConfigMissing(format!("MCP service error: {e}"))
+    })?;
+
     Ok(())
 }
 
