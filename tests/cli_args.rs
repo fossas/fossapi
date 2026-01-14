@@ -317,3 +317,29 @@ fn test_update_project_multiple_flags() {
         _ => panic!("Expected Update command"),
     }
 }
+
+// =============================================================================
+// TDD Tests for ISS-10860: MCP CLI subcommand
+// =============================================================================
+
+#[test]
+fn test_cli_parses_mcp_subcommand() {
+    let cli = Cli::parse_from(["fossapi", "mcp"]);
+    match cli.command {
+        Command::Mcp { verbose } => {
+            assert!(!verbose);
+        }
+        _ => panic!("Expected Mcp command"),
+    }
+}
+
+#[test]
+fn test_cli_parses_mcp_with_verbose_flag() {
+    let cli = Cli::parse_from(["fossapi", "mcp", "--verbose"]);
+    match cli.command {
+        Command::Mcp { verbose } => {
+            assert!(verbose);
+        }
+        _ => panic!("Expected Mcp command"),
+    }
+}
