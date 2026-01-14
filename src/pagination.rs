@@ -3,7 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 /// A page of results from the FOSSA API.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(bound = "T: Serialize")]
 pub struct Page<T> {
     /// The items on this page.
     pub items: Vec<T>,
