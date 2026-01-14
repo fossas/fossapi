@@ -618,4 +618,182 @@ mod tests {
         let _ = server.handle_list(params).await;
         // Mock expectations verify count was capped
     }
+
+    // =========================================================================
+    // ISS-10859: MCP Update Tool Handler Tests
+    // =========================================================================
+
+    #[tokio::test]
+    async fn handle_update_revision_returns_error() {
+        // Create a minimal client (won't be used since revision update fails early)
+        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
+        let server = FossaServer::new(client);
+
+        let params = UpdateParams {
+            entity: EntityType::Revision,
+            locator: "custom+org/repo$main".to_string(),
+            title: Some("New Title".to_string()),
+            description: None,
+            url: None,
+            public: None,
+        };
+
+        let result = server.handle_update(params).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("not supported"));
+    }
+
+    #[tokio::test]
+    async fn handle_update_issue_returns_error() {
+        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
+        let server = FossaServer::new(client);
+
+        let params = UpdateParams {
+            entity: EntityType::Issue,
+            locator: "12345".to_string(),
+            title: Some("New Title".to_string()),
+            description: None,
+            url: None,
+            public: None,
+        };
+
+        let result = server.handle_update(params).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("not supported"));
+    }
+
+    #[tokio::test]
+    async fn handle_update_dependency_returns_error() {
+        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
+        let server = FossaServer::new(client);
+
+        let params = UpdateParams {
+            entity: EntityType::Dependency,
+            locator: "npm+lodash$4.17.21".to_string(),
+            title: Some("New Title".to_string()),
+            description: None,
+            url: None,
+            public: None,
+        };
+
+        let result = server.handle_update(params).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("not supported"));
+    }
+
+    #[tokio::test]
+    async fn handle_update_project_title_succeeds() {
+        use wiremock::matchers::body_json;
+
+        let mock_server = MockServer::start().await;
+
+        let expected_body = serde_json::json!({
+            "title": "Updated Title"
+        });
+
+        let response_project = serde_json::json!({
+            "id": "custom+acme/myapp",
+            "title": "Updated Title",
+            "public": false,
+            "labels": [],
+            "teams": []
+        });
+
+        Mock::given(method("PUT"))
+            .and(path("/projects/custom%2Bacme%2Fmyapp"))
+            .and(body_json(&expected_body))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response_project))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = UpdateParams {
+            entity: EntityType::Project,
+            locator: "custom+acme/myapp".to_string(),
+            title: Some("Updated Title".to_string()),
+            description: None,
+            url: None,
+            public: None,
+        };
+
+        let result = server.handle_update(params).await;
+
+        assert!(result.is_ok());
+        let call_result = result.unwrap();
+        assert!(!call_result.is_error.unwrap_or(false));
+
+        // Verify the response contains the updated title
+        let content = &call_result.content[0];
+        if let rmcp::model::RawContent::Text(text) = &content.raw {
+            assert!(text.text.contains("Updated Title"));
+        } else {
+            panic!("Expected text content");
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_update_project_description_succeeds() {
+        use wiremock::matchers::body_json;
+
+        let mock_server = MockServer::start().await;
+
+        let expected_body = serde_json::json!({
+            "description": "New project description"
+        });
+
+        let response_project = serde_json::json!({
+            "id": "custom+acme/myapp",
+            "title": "My App",
+            "description": "New project description",
+            "public": false,
+            "labels": [],
+            "teams": []
+        });
+
+        Mock::given(method("PUT"))
+            .and(path("/projects/custom%2Bacme%2Fmyapp"))
+            .and(body_json(&expected_body))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response_project))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = UpdateParams {
+            entity: EntityType::Project,
+            locator: "custom+acme/myapp".to_string(),
+            title: None,
+            description: Some("New project description".to_string()),
+            url: None,
+            public: None,
+        };
+
+        let result = server.handle_update(params).await;
+
+        assert!(result.is_ok());
+        let call_result = result.unwrap();
+        assert!(!call_result.is_error.unwrap_or(false));
+
+        // Verify the response contains valid project data
+        // Note: The Project struct doesn't have a description field,
+        // so we verify the locator is correct (wiremock verifies the request body)
+        let content = &call_result.content[0];
+        if let rmcp::model::RawContent::Text(text) = &content.raw {
+            assert!(text.text.contains("custom+acme/myapp"));
+            assert!(text.text.contains("My App"));
+        } else {
+            panic!("Expected text content");
+        }
+    }
 }
