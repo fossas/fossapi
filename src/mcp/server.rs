@@ -92,7 +92,25 @@ impl FossaServer {
     }
 
     /// Handle the `get` tool.
-    async fn handle_get(&self, params: GetParams) -> Result<CallToolResult, McpError> {
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - The get parameters including entity type and ID
+    ///
+    /// # Returns
+    ///
+    /// Returns the entity as pretty-printed JSON in a `CallToolResult`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an MCP error if:
+    /// - Entity type is `Dependency` (not supported for get)
+    /// - Issue ID is not a valid number
+    /// - The underlying API call fails
+    pub async fn handle_get(
+        &self,
+        params: GetParams,
+    ) -> Result<CallToolResult, McpError> {
         let result = match params.entity {
             EntityType::Project => {
                 let project = Project::get(&self.client, params.id)
