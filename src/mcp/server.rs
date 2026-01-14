@@ -316,6 +316,8 @@ impl ServerHandler for FossaServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wiremock::matchers::{method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
     fn schema_generates_for_get_params() {
@@ -347,5 +349,255 @@ mod tests {
         // This compiles only if FossaServer implements ServerHandler correctly.
         fn assert_server_handler<T: ServerHandler>() {}
         assert_server_handler::<FossaServer>();
+    }
+
+    // =========================================================================
+    // ISS-10858: MCP list tool handler tests
+    // =========================================================================
+
+    /// Test: list(entity: projects) returns paginated list
+    #[tokio::test]
+    async fn handle_list_projects_returns_paginated_list() {
+        let mock_server = MockServer::start().await;
+
+        let response = serde_json::json!({
+            "projects": [
+                {
+                    "id": "custom+1/proj1",
+                    "title": "Project 1",
+                    "public": false,
+                    "labels": [],
+                    "teams": []
+                },
+                {
+                    "id": "custom+1/proj2",
+                    "title": "Project 2",
+                    "public": false,
+                    "labels": [],
+                    "teams": []
+                }
+            ],
+            "total": 2
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/v2/projects"))
+            .and(query_param("page", "1"))
+            .and(query_param("count", "20"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = ListParams {
+            entity: EntityType::Project,
+            parent: None,
+            page: None,
+            count: None,
+        };
+
+        let result = server.handle_list(params).await.unwrap();
+
+        // Verify success
+        assert!(!result.is_error.unwrap_or(false));
+
+        // Parse response and verify Page structure
+        let text = match &result.content[0].raw {
+            rmcp::model::RawContent::Text(t) => &t.text,
+            _ => panic!("Expected text content"),
+        };
+        let page: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert_eq!(page["items"].as_array().unwrap().len(), 2);
+        assert_eq!(page["page"], 1);
+        assert_eq!(page["count"], 20);
+    }
+
+    /// Test: list(entity: revisions, parent: locator) lists revisions
+    #[tokio::test]
+    async fn handle_list_revisions_with_parent() {
+        let mock_server = MockServer::start().await;
+
+        let response = serde_json::json!({
+            "default_branch": {
+                "revisions": [
+                    {
+                        "locator": "custom+org/repo$abc123",
+                        "resolved": true,
+                        "source": "cli",
+                        "unresolved_issue_count": 0,
+                        "unresolved_licensing_issue_count": 0,
+                        "created_at": "2024-01-01T00:00:00Z"
+                    }
+                ]
+            }
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/projects/custom%2Borg%2Frepo/revisions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = ListParams {
+            entity: EntityType::Revision,
+            parent: Some("custom+org/repo".to_string()),
+            page: None,
+            count: None,
+        };
+
+        let result = server.handle_list(params).await.unwrap();
+        assert!(!result.is_error.unwrap_or(false));
+    }
+
+    /// Test: list(entity: dependencies, parent: locator) lists deps
+    #[tokio::test]
+    async fn handle_list_dependencies_with_parent() {
+        let mock_server = MockServer::start().await;
+
+        let response = serde_json::json!({
+            "dependencies": [
+                {
+                    "locator": "npm+lodash$4.17.21",
+                    "depth": 1,
+                    "licenses": ["MIT"]
+                }
+            ],
+            "count": 1
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/v2/revisions/custom%2Borg%2Frepo%24abc123/dependencies"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = ListParams {
+            entity: EntityType::Dependency,
+            parent: Some("custom+org/repo$abc123".to_string()),
+            page: None,
+            count: None,
+        };
+
+        let result = server.handle_list(params).await.unwrap();
+        assert!(!result.is_error.unwrap_or(false));
+    }
+
+    /// Test: Missing required parent for revisions returns error
+    #[tokio::test]
+    async fn handle_list_revisions_without_parent_returns_error() {
+        let mock_server = MockServer::start().await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = ListParams {
+            entity: EntityType::Revision,
+            parent: None, // Missing required parent
+            page: None,
+            count: None,
+        };
+
+        let result = server.handle_list(params).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.to_lowercase().contains("parent"));
+    }
+
+    /// Test: Missing required parent for dependencies returns error
+    #[tokio::test]
+    async fn handle_list_dependencies_without_parent_returns_error() {
+        let mock_server = MockServer::start().await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = ListParams {
+            entity: EntityType::Dependency,
+            parent: None, // Missing required parent
+            page: None,
+            count: None,
+        };
+
+        let result = server.handle_list(params).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.to_lowercase().contains("parent"));
+    }
+
+    /// Test: Pagination uses defaults (page=1, count=20)
+    #[tokio::test]
+    async fn handle_list_uses_pagination_defaults() {
+        let mock_server = MockServer::start().await;
+
+        // Verify default page=1 and count=20
+        Mock::given(method("GET"))
+            .and(path("/v2/projects"))
+            .and(query_param("page", "1"))
+            .and(query_param("count", "20"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "projects": [],
+                "total": 0
+            })))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = ListParams {
+            entity: EntityType::Project,
+            parent: None,
+            page: None,   // Should default to 1
+            count: None,  // Should default to 20
+        };
+
+        let _ = server.handle_list(params).await;
+        // Mock expectations verify the query params were correct
+    }
+
+    /// Test: Count is capped at 100
+    #[tokio::test]
+    async fn handle_list_caps_count_at_100() {
+        let mock_server = MockServer::start().await;
+
+        // Request count=200, should be capped to 100
+        Mock::given(method("GET"))
+            .and(path("/v2/projects"))
+            .and(query_param("page", "1"))
+            .and(query_param("count", "100"))  // Capped from 200
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "projects": [],
+                "total": 0
+            })))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = ListParams {
+            entity: EntityType::Project,
+            parent: None,
+            page: Some(1),
+            count: Some(200),  // Should be capped to 100
+        };
+
+        let _ = server.handle_list(params).await;
+        // Mock expectations verify count was capped
     }
 }
