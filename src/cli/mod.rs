@@ -105,7 +105,12 @@ pub enum ListCommand {
     #[command(alias = "dependency")]
     Dependencies {
         /// The revision locator (e.g., "custom+org/repo$ref").
-        revision: String,
+        #[arg(long, required_unless_present = "revision_positional")]
+        revision: Option<String>,
+
+        /// The revision locator (positional, alternative to --revision).
+        #[arg(index = 1, required_unless_present = "revision")]
+        revision_positional: Option<String>,
     },
     /// List revisions for a project.
     #[command(alias = "revision")]

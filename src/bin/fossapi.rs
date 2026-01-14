@@ -88,7 +88,8 @@ async fn handle_list(
             let issues = Issue::list_page(client, &Default::default(), page, count).await?;
             output_page(&issues, json, |i| IssueRow::from(i))?;
         }
-        ListCommand::Dependencies { revision } => {
+        ListCommand::Dependencies { revision, revision_positional } => {
+            let revision = revision.or(revision_positional).expect("revision is required");
             let deps = get_dependencies(client, &revision, Default::default()).await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&deps)?);

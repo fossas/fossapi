@@ -177,8 +177,9 @@ fn test_list_issues_parses() {
 fn test_list_dependencies_requires_revision_arg() {
     let cli = Cli::parse_from(["fossapi", "list", "dependencies", "custom+org/repo$abc"]);
     match cli.command {
-        Command::List { command: ListCommand::Dependencies { revision } } => {
-            assert_eq!(revision, "custom+org/repo$abc");
+        Command::List { command: ListCommand::Dependencies { revision, revision_positional } } => {
+            assert_eq!(revision, None);
+            assert_eq!(revision_positional, Some("custom+org/repo$abc".to_string()));
         }
         _ => panic!("Expected ListCommand::Dependencies"),
     }
@@ -217,6 +218,22 @@ fn test_list_revisions_with_pagination() {
             assert_eq!(count, None);
         }
         _ => panic!("Expected ListCommand::Revisions"),
+    }
+}
+
+// =============================================================================
+// TDD Tests for ISS-10849: --revision flag for list dependencies
+// =============================================================================
+
+#[test]
+fn test_list_dependencies_with_revision_flag() {
+    let cli = Cli::parse_from(["fossapi", "list", "dependencies", "--revision", "custom+org/repo$abc"]);
+    match cli.command {
+        Command::List { command: ListCommand::Dependencies { revision, revision_positional } } => {
+            assert_eq!(revision, Some("custom+org/repo$abc".to_string()));
+            assert_eq!(revision_positional, None);
+        }
+        _ => panic!("Expected ListCommand::Dependencies"),
     }
 }
 
