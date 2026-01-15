@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn test_issue_depths_default() {
-        let json = r#"{}"#;
+        let json = r"{}";
         let depths: IssueDepths = serde_json::from_str(json).expect("Failed to deserialize empty depths");
 
         assert_eq!(depths.direct, 0);
@@ -190,7 +190,7 @@ mod tests {
         let serialized = serde_qs::to_string(&query).expect("Failed to serialize query");
 
         // Empty query should serialize to empty string (no fields set)
-        assert!(serialized.is_empty() || serialized == "");
+        assert!(serialized.is_empty());
     }
 
     #[test]
@@ -493,41 +493,49 @@ pub struct Issue {
 
 impl Issue {
     /// Whether this is a vulnerability issue.
+    #[must_use]
     pub fn is_vulnerability(&self) -> bool {
         self.issue_type == "vulnerability"
     }
 
     /// Whether this is a licensing issue.
+    #[must_use]
     pub fn is_licensing(&self) -> bool {
         self.issue_type == "licensing"
     }
 
     /// Whether this is a quality issue.
+    #[must_use]
     pub fn is_quality(&self) -> bool {
         self.issue_type == "quality"
     }
 
     /// Number of projects where this issue is active.
+    #[must_use]
     pub fn active_count(&self) -> u32 {
         self.statuses.active
     }
 
     /// Number of projects where this issue is ignored.
+    #[must_use]
     pub fn ignored_count(&self) -> u32 {
         self.statuses.ignored
     }
 
     /// Get the source package locator.
+    #[must_use]
     pub fn source_locator(&self) -> &str {
         &self.source.id
     }
 
     /// Get the package name from the source.
+    #[must_use]
     pub fn package_name(&self) -> Option<&str> {
         self.source.name.as_deref()
     }
 
     /// Get the package version from the source.
+    #[must_use]
     pub fn package_version(&self) -> Option<&str> {
         self.source.version.as_deref()
     }
@@ -666,7 +674,7 @@ pub struct IssueListQuery {
     #[serde(rename = "scopeId", skip_serializing_if = "Option::is_none")]
     pub scope_id: Option<String>,
 
-    /// Sort order (e.g., "severity_desc", "created_at_asc").
+    /// Sort order (e.g., `severity_desc`, `created_at_asc`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort: Option<String>,
 }
@@ -707,6 +715,7 @@ impl List for Issue {
     ) -> Result<Page<Self>> {
         let path = "v2/issues";
 
+        #[allow(clippy::items_after_statements)]
         #[derive(Serialize)]
         struct RequestParams<'a> {
             #[serde(flatten)]
@@ -736,6 +745,10 @@ impl List for Issue {
 /// * `client` - The FOSSA API client
 /// * `query` - Query parameters for filtering
 ///
+/// # Errors
+///
+/// Returns an error if the API request fails or the response cannot be parsed.
+///
 /// # Example
 ///
 /// ```ignore
@@ -760,6 +773,10 @@ pub async fn get_issues(client: &FossaClient, query: IssueListQuery) -> Result<V
 /// * `query` - Query parameters for filtering
 /// * `page` - Page number (1-indexed)
 /// * `count` - Number of items per page
+///
+/// # Errors
+///
+/// Returns an error if the API request fails or the response cannot be parsed.
 pub async fn get_issues_page(
     client: &FossaClient,
     query: IssueListQuery,
@@ -776,6 +793,10 @@ pub async fn get_issues_page(
 /// * `client` - The FOSSA API client
 /// * `project_locator` - The project locator (e.g., "custom+org/project")
 /// * `category` - Optional issue category filter
+///
+/// # Errors
+///
+/// Returns an error if the API request fails or the response cannot be parsed.
 ///
 /// # Example
 ///

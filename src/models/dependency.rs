@@ -28,7 +28,7 @@ mod tests {
 
     #[test]
     fn test_dependency_status_default() {
-        let json = r#"{}"#;
+        let json = r"{}";
         let status: DependencyStatus = serde_json::from_str(json).expect("Failed to deserialize");
         assert!(!status.resolved);
         assert!(!status.unsupported);
@@ -46,7 +46,7 @@ mod tests {
 
     #[test]
     fn test_scoped_conclusion_empty() {
-        let json = r#"{}"#;
+        let json = r"{}";
         let scoped: ScopedConclusion = serde_json::from_str(json).expect("Failed to deserialize");
         assert!(scoped.licenses.is_empty());
         assert!(scoped.last_edited_by.is_none());
@@ -62,7 +62,7 @@ mod tests {
 
     #[test]
     fn test_base_conclusion_empty() {
-        let json = r#"{}"#;
+        let json = r"{}";
         let base: BaseConclusion = serde_json::from_str(json).expect("Failed to deserialize");
         assert!(base.licenses.is_empty());
         assert!(base.justification.is_none());
@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn test_concluded_licenses_empty() {
-        let json = r#"{}"#;
+        let json = r"{}";
         let concluded: ConcludedLicenses = serde_json::from_str(json).expect("Failed to deserialize");
         assert!(concluded.scoped.is_none());
         assert!(concluded.base.is_none());
@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn test_dependency_root_project_minimal() {
-        let json = r#"{}"#;
+        let json = r"{}";
         let root: DependencyRootProject =
             serde_json::from_str(json).expect("Failed to deserialize");
         assert!(root.title.is_none());
@@ -359,21 +359,25 @@ pub struct Dependency {
 
 impl Dependency {
     /// Whether this is a direct dependency.
+    #[must_use]
     pub fn is_direct(&self) -> bool {
         self.depth <= 1
     }
 
     /// Whether this is a transitive dependency.
+    #[must_use]
     pub fn is_transitive(&self) -> bool {
         self.depth > 1
     }
 
     /// Whether this dependency has any issues.
+    #[must_use]
     pub fn has_issues(&self) -> bool {
         !self.issues.is_empty()
     }
 
     /// Get the package name from the locator.
+    #[must_use]
     pub fn package_name(&self) -> Option<&str> {
         // Format: fetcher+package$version
         let after_plus = self.locator.split('+').nth(1)?;
@@ -381,41 +385,48 @@ impl Dependency {
     }
 
     /// Get the version from the locator.
+    #[must_use]
     pub fn version(&self) -> Option<&str> {
         self.locator.split('$').nth(1)
     }
 
     /// Get the fetcher/package manager from the locator.
+    #[must_use]
     pub fn fetcher(&self) -> Option<&str> {
         self.locator.split('+').next()
     }
 
     /// Whether this dependency has been resolved.
+    #[must_use]
     pub fn is_resolved(&self) -> bool {
         self.status.as_ref().is_some_and(|s| s.resolved)
     }
 
     /// Whether this dependency is currently being analyzed.
+    #[must_use]
     pub fn is_analyzing(&self) -> bool {
         self.status.as_ref().is_some_and(|s| s.analyzing)
     }
 
     /// Whether this dependency type is unsupported.
+    #[must_use]
     pub fn is_unsupported(&self) -> bool {
         self.status.as_ref().is_some_and(|s| s.unsupported)
     }
 
     /// Get the status error message, if any.
+    #[must_use]
     pub fn status_error(&self) -> Option<&str> {
         self.status.as_ref().and_then(|s| s.error.as_deref())
     }
 
     /// Get the concluded license IDs (from base conclusions).
+    #[must_use]
     pub fn concluded_license_ids(&self) -> Vec<&str> {
         self.concluded_licenses
             .as_ref()
             .and_then(|c| c.base.as_ref())
-            .map(|b| b.licenses.iter().map(|s| s.as_str()).collect())
+            .map(|b| b.licenses.iter().map(String::as_str).collect())
             .unwrap_or_default()
     }
 }
@@ -448,6 +459,7 @@ pub enum LicenseInfo {
 
 impl LicenseInfo {
     /// Get the license identifier.
+    #[must_use]
     pub fn id(&self) -> Option<&str> {
         match self {
             LicenseInfo::Simple(s) => Some(s.as_str()),
@@ -456,6 +468,7 @@ impl LicenseInfo {
     }
 
     /// Get the license title (falls back to id for simple licenses).
+    #[must_use]
     pub fn title(&self) -> Option<&str> {
         match self {
             LicenseInfo::Simple(s) => Some(s.as_str()),
@@ -654,8 +667,9 @@ impl List for Dependency {
     ) -> Result<Page<Self>> {
         let (revision_locator, filters) = query;
         let encoded_locator = urlencoding::encode(revision_locator);
-        let path = format!("v2/revisions/{}/dependencies", encoded_locator);
+        let path = format!("v2/revisions/{encoded_locator}/dependencies");
 
+        #[allow(clippy::items_after_statements)]
         #[derive(Serialize)]
         struct RequestParams<'a> {
             #[serde(flatten)]
@@ -687,6 +701,10 @@ impl List for Dependency {
 /// * `revision_locator` - The revision locator (e.g., "custom+org/project$main")
 /// * `query` - Query parameters for filtering
 ///
+/// # Errors
+///
+/// Returns an error if the API request fails or the response cannot be parsed.
+///
 /// # Example
 ///
 /// ```ignore
@@ -716,6 +734,10 @@ pub async fn get_dependencies(
 /// * `query` - Query parameters for filtering
 /// * `page` - Page number (1-indexed)
 /// * `count` - Number of items per page
+///
+/// # Errors
+///
+/// Returns an error if the API request fails or the response cannot be parsed.
 pub async fn get_dependencies_page(
     client: &FossaClient,
     revision_locator: &str,

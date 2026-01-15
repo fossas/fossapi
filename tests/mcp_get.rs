@@ -7,7 +7,7 @@ use fossapi::FossaClient;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-/// Helper to build GetParams.
+/// Helper to build `GetParams`.
 fn get_params(entity: EntityType, id: &str) -> GetParams {
     GetParams {
         entity,
@@ -15,7 +15,7 @@ fn get_params(entity: EntityType, id: &str) -> GetParams {
     }
 }
 
-/// Extract text from CallToolResult content.
+/// Extract text from `CallToolResult` content.
 fn extract_text(result: &rmcp::model::CallToolResult) -> &str {
     let content = &result.content[0];
     content.raw.as_text().expect("Expected text content").text.as_str()
@@ -136,11 +136,10 @@ async fn test_mcp_get_dependency_returns_error() {
 
     // Should return an error, not a success
     let err = result.expect_err("get dependency should fail");
-    let err_msg = format!("{:?}", err);
+    let err_msg = format!("{err:?}");
     assert!(
         err_msg.contains("does not support get") || err_msg.contains("list with a parent"),
-        "Error should mention dependency doesn't support get: {}",
-        err_msg
+        "Error should mention dependency doesn't support get: {err_msg}"
     );
 }
 
@@ -157,10 +156,9 @@ async fn test_mcp_get_issue_with_invalid_id_returns_error() {
         .await;
 
     let err = result.expect_err("get issue with invalid ID should fail");
-    let err_msg = format!("{:?}", err);
+    let err_msg = format!("{err:?}");
     assert!(
         err_msg.contains("must be a number"),
-        "Error should mention issue ID must be numeric: {}",
-        err_msg
+        "Error should mention issue ID must be numeric: {err_msg}"
     );
 }

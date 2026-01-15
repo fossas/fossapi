@@ -20,9 +20,10 @@ pub struct Page<T> {
 
 impl<T> Page<T> {
     /// Create a new page from items and pagination info.
+    #[must_use]
     pub fn new(items: Vec<T>, page: u32, count: u32, total: Option<u64>) -> Self {
         let has_more = match total {
-            Some(t) => (page as u64 * count as u64) < t,
+            Some(t) => (u64::from(page) * u64::from(count)) < t,
             None => items.len() >= count as usize,
         };
         Self {
@@ -35,6 +36,7 @@ impl<T> Page<T> {
     }
 
     /// Map the items to a different type.
+    #[must_use]
     pub fn map<U, F: FnMut(T) -> U>(self, f: F) -> Page<U> {
         Page {
             items: self.items.into_iter().map(f).collect(),
@@ -46,13 +48,20 @@ impl<T> Page<T> {
     }
 
     /// Returns true if this page has no items.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
     /// Returns the number of items on this page.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.items.len()
+    }
+
+    /// Returns an iterator over the items in this page.
+    pub fn iter(&self) -> std::slice::Iter<'_, T> {
+        self.items.iter()
     }
 }
 
@@ -87,6 +96,7 @@ pub struct PaginationParams {
 
 impl PaginationParams {
     /// Create pagination params for a specific page.
+    #[must_use]
     pub fn for_page(page: u32, count: u32) -> Self {
         Self {
             page: Some(page),

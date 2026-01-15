@@ -82,7 +82,7 @@ async fn main() -> fossapi::Result<()> {
                 } else {
                     String::new()
                 };
-                println!("  - {}@{}{}", name, version, issues);
+                println!("  - {name}@{version}{issues}");
             }
         }
     }

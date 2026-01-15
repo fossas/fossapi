@@ -2,7 +2,7 @@
 //!
 //! Uses wiremock to mock the FOSSA API and test actual execution flow.
 
-use fossapi::{get_dependencies, FossaClient, Issue, List, Project};
+use fossapi::{get_dependencies, DependencyListQuery, FossaClient, Issue, IssueListQuery, List, Project, ProjectListQuery};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -40,7 +40,7 @@ async fn test_list_projects_returns_page() {
         .await;
 
     let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
-    let page = Project::list_page(&client, &Default::default(), 1, 20)
+    let page = Project::list_page(&client, &ProjectListQuery::default(), 1, 20)
         .await
         .unwrap();
 
@@ -76,7 +76,7 @@ async fn test_list_projects_with_pagination() {
         .await;
 
     let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
-    let page = Project::list_page(&client, &Default::default(), 2, 50)
+    let page = Project::list_page(&client, &ProjectListQuery::default(), 2, 50)
         .await
         .unwrap();
 
@@ -122,7 +122,7 @@ async fn test_list_issues_returns_page() {
         .await;
 
     let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
-    let page = Issue::list_page(&client, &Default::default(), 1, 20)
+    let page = Issue::list_page(&client, &IssueListQuery::default(), 1, 20)
         .await
         .unwrap();
 
@@ -161,7 +161,7 @@ async fn test_list_dependencies_with_revision() {
         .await;
 
     let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
-    let deps = get_dependencies(&client, "custom+org/repo$abc123", Default::default())
+    let deps = get_dependencies(&client, "custom+org/repo$abc123", DependencyListQuery::default())
         .await
         .unwrap();
 
@@ -189,5 +189,5 @@ async fn test_list_projects_trait_method_called() {
         .await;
 
     let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
-    let _ = Project::list_page(&client, &Default::default(), 1, 20).await;
+    let _ = Project::list_page(&client, &ProjectListQuery::default(), 1, 20).await;
 }
