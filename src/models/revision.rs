@@ -107,16 +107,19 @@ impl Revision {
     ///
     /// Revision locators have format: `fetcher+org/project$ref`
     /// This extracts `fetcher+org/project`.
+    #[must_use]
     pub fn project_locator(&self) -> Option<&str> {
         self.locator.split('$').next()
     }
 
     /// Get the ref (branch/tag/commit) from the locator.
+    #[must_use]
     pub fn ref_from_locator(&self) -> Option<&str> {
         self.locator.split('$').nth(1)
     }
 
     /// Get the fetcher type from the locator (e.g., "custom", "git").
+    #[must_use]
     pub fn fetcher(&self) -> Option<&str> {
         self.loc
             .as_ref()
@@ -125,21 +128,28 @@ impl Revision {
     }
 
     /// Check if the revision analysis has completed successfully.
+    #[must_use]
     pub fn is_analyzed(&self) -> bool {
         self.resolved
     }
 
     /// Check if the revision has any issues.
+    #[must_use]
     pub fn has_issues(&self) -> bool {
-        self.unresolved_issue_count.map_or(false, |c| c > 0)
+        self.unresolved_issue_count.is_some_and(|c| c > 0)
     }
 
     /// Get the issue count for this revision.
+    #[must_use]
     pub fn issue_count(&self) -> u32 {
         self.unresolved_issue_count.unwrap_or(0)
     }
 
     /// Get all dependencies for this revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the API request fails.
     ///
     /// # Example
     ///
@@ -163,6 +173,10 @@ impl Revision {
     }
 
     /// Get dependencies with custom query filters.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the API request fails.
     pub async fn dependencies_with_query(
         &self,
         client: &FossaClient,
@@ -199,7 +213,7 @@ impl Get for Revision {
     async fn get(client: &FossaClient, locator: String) -> Result<Self> {
         let encoded_locator = urlencoding::encode(&locator);
         // Note: Single revision endpoint may differ - using revisions list and filtering
-        let path = format!("revisions/{}", encoded_locator);
+        let path = format!("revisions/{encoded_locator}");
 
         let response = client.get(&path).await?;
         let revision: Revision = response.json().await.map_err(FossaError::HttpError)?;
@@ -220,7 +234,7 @@ impl List for Revision {
     ) -> Result<Page<Self>> {
         let (project_locator, filters) = query;
         let encoded_locator = urlencoding::encode(project_locator);
-        let path = format!("projects/{}/revisions", encoded_locator);
+        let path = format!("projects/{encoded_locator}/revisions");
 
         // The API returns all revisions grouped by branch (no server-side pagination)
         let response = client.get(&path).await?;
@@ -235,7 +249,7 @@ impl List for Revision {
                 filters
                     .branch
                     .as_ref()
-                    .map_or(true, |filter| branch_name == filter)
+                    .is_none_or(|filter| branch_name == filter)
             })
             .flat_map(|(_, revisions)| revisions)
             .collect();
@@ -262,6 +276,10 @@ impl List for Revision {
 /// * `client` - The FOSSA API client
 /// * `project_locator` - The project locator (e.g., "custom+org/project")
 /// * `query` - Query parameters for filtering
+///
+/// # Errors
+///
+/// Returns an error if the API request fails or the response cannot be parsed.
 ///
 /// # Example
 ///
@@ -292,6 +310,10 @@ pub async fn get_revisions(
 /// * `query` - Query parameters for filtering
 /// * `page` - Page number (1-indexed)
 /// * `count` - Number of items per page
+///
+/// # Errors
+///
+/// Returns an error if the API request fails or the response cannot be parsed.
 pub async fn get_revisions_page(
     client: &FossaClient,
     project_locator: &str,
@@ -308,6 +330,10 @@ pub async fn get_revisions_page(
 ///
 /// * `client` - The FOSSA API client
 /// * `revision_locator` - The revision locator (e.g., "custom+org/project$main")
+///
+/// # Errors
+///
+/// Returns an error if the API request fails or the response cannot be parsed.
 ///
 /// # Example
 ///

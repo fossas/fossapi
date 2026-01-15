@@ -80,18 +80,18 @@ async fn handle_list(
         ListCommand::Projects { page, count } => {
             let page = page.unwrap_or(1);
             let count = count.unwrap_or(20);
-            let projects = Project::list_page(client, &Default::default(), page, count).await?;
+            let projects = Project::list_page(client, &fossapi::ProjectListQuery::default(), page, count).await?;
             output_page(&projects, json, |p| ProjectRow::from(p))?;
         }
         ListCommand::Issues { page, count } => {
             let page = page.unwrap_or(1);
             let count = count.unwrap_or(20);
-            let issues = Issue::list_page(client, &Default::default(), page, count).await?;
+            let issues = Issue::list_page(client, &fossapi::IssueListQuery::default(), page, count).await?;
             output_page(&issues, json, |i| IssueRow::from(i))?;
         }
         ListCommand::Dependencies { revision, revision_positional } => {
             let revision = revision.or(revision_positional).expect("revision is required");
-            let deps = get_dependencies(client, &revision, Default::default()).await?;
+            let deps = get_dependencies(client, &revision, fossapi::DependencyListQuery::default()).await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&deps)?);
             } else {
@@ -107,13 +107,13 @@ async fn handle_list(
             let page = page.unwrap_or(1);
             let count = count.unwrap_or(20);
             let revisions =
-                fossapi::get_revisions(client, &project, Default::default()).await?;
+                fossapi::get_revisions(client, &project, fossapi::RevisionListQuery::default()).await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&revisions)?);
             } else {
                 let rows: Vec<RevisionRow> = revisions.iter().map(RevisionRow::from).collect();
                 println!("{}", Table::new(rows));
-                println!("\n{} revisions for {}", revisions.len(), project);
+                println!("\n{} revisions for {project}", revisions.len());
             }
             let _ = (page, count);
         }
@@ -130,23 +130,20 @@ async fn handle_update(
     public: Option<bool>,
     json: bool,
 ) -> fossapi::Result<()> {
-    match entity {
-        Entity::Project => {
-            let params = ProjectUpdateParams {
-                title,
-                description,
-                public,
-                ..Default::default()
-            };
-            let project = Project::update(client, locator.to_string(), params).await?;
-            output_single(&project, json)?;
-        }
-        _ => {
-            eprintln!("Error: Only projects can be updated via CLI");
-            return Err(fossapi::FossaError::InvalidLocator(
-                "only projects support update".to_string(),
-            ));
-        }
+    if entity == Entity::Project {
+        let params = ProjectUpdateParams {
+            title,
+            description,
+            public,
+            ..Default::default()
+        };
+        let project = Project::update(client, locator.to_string(), params).await?;
+        output_single(&project, json)?;
+    } else {
+        eprintln!("Error: Only projects can be updated via CLI");
+        return Err(fossapi::FossaError::InvalidLocator(
+            "only projects support update".to_string(),
+        ));
     }
     Ok(())
 }
@@ -196,7 +193,7 @@ where
         let rows: Vec<R> = page.items.iter().map(to_row).collect();
         println!("{}", Table::new(rows));
         if let Some(total) = page.total {
-            let total_pages = (total + page.count as u64 - 1) / page.count.max(1) as u64;
+            let total_pages = (total + u64::from(page.count) - 1) / u64::from(page.count.max(1));
             println!("\nPage {}/{} ({} total items)", page.page, total_pages, total);
         } else if page.has_more {
             println!("\nPage {} (more available)", page.page);

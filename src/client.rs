@@ -88,7 +88,7 @@ impl FossaClient {
         let base_url_str = if base_url.ends_with('/') {
             base_url.to_string()
         } else {
-            format!("{}/", base_url)
+            format!("{base_url}/")
         };
 
         let base_url = Url::parse(&base_url_str)?;
@@ -110,11 +110,17 @@ impl FossaClient {
     }
 
     /// Get the base URL.
+    #[must_use]
     pub fn base_url(&self) -> &Url {
         &self.base_url
     }
 
     /// Make a GET request.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the URL is invalid, the request fails, or the server
+    /// returns an error status code.
     #[tracing::instrument(skip(self))]
     pub async fn get(&self, path: &str) -> Result<Response> {
         let url = self.base_url.join(path)?;
@@ -131,6 +137,11 @@ impl FossaClient {
     }
 
     /// Make a GET request with query parameters.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the URL is invalid, the request fails, or the server
+    /// returns an error status code.
     #[tracing::instrument(skip(self, query))]
     pub async fn get_with_query<Q: Serialize + ?Sized>(
         &self,
@@ -152,6 +163,11 @@ impl FossaClient {
     }
 
     /// Make a PUT request with JSON body.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the URL is invalid, the request fails, or the server
+    /// returns an error status code.
     #[tracing::instrument(skip(self, body))]
     pub async fn put<B: Serialize + ?Sized>(&self, path: &str, body: &B) -> Result<Response> {
         let url = self.base_url.join(path)?;
@@ -169,6 +185,11 @@ impl FossaClient {
     }
 
     /// Make a POST request with JSON body.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the URL is invalid, the request fails, or the server
+    /// returns an error status code.
     #[tracing::instrument(skip(self, body))]
     pub async fn post<B: Serialize + ?Sized>(&self, path: &str, body: &B) -> Result<Response> {
         let url = self.base_url.join(path)?;
@@ -217,9 +238,8 @@ impl FossaClient {
         response: Response,
         status: reqwest::StatusCode,
     ) -> String {
-        let body = match response.text().await {
-            Ok(b) => b,
-            Err(_) => return format!("HTTP {}", status),
+        let Ok(body) = response.text().await else {
+            return format!("HTTP {status}");
         };
 
         // Try to parse as JSON and extract message field
@@ -243,7 +263,7 @@ mod tests {
     #[test]
     fn test_client_debug() {
         let client = FossaClient::new("test-token", "https://app.fossa.com/api").unwrap();
-        let debug = format!("{:?}", client);
+        let debug = format!("{client:?}");
         assert!(debug.contains("FossaClient"));
         assert!(debug.contains("base_url"));
         // Token should not be in debug output

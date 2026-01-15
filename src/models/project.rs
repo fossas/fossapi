@@ -105,21 +105,25 @@ pub struct LatestRevision {
 
 impl Project {
     /// Get the project locator (alias for id).
+    #[must_use]
     pub fn locator(&self) -> &str {
         &self.id
     }
 
     /// Get the fetcher type from the locator (e.g., "custom", "git").
+    #[must_use]
     pub fn fetcher(&self) -> Option<&str> {
         self.id.split('+').next()
     }
 
     /// Check if this project has been analyzed.
+    #[must_use]
     pub fn is_analyzed(&self) -> bool {
         self.latest_revision.is_some()
     }
 
     /// Get the latest revision locator if available.
+    #[must_use]
     pub fn latest_revision_locator(&self) -> Option<&str> {
         self.latest_revision.as_ref().map(|r| r.locator.as_str())
     }
@@ -127,6 +131,10 @@ impl Project {
     /// Get all revisions for this project.
     ///
     /// # Example
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the API request fails.
     ///
     /// ```ignore
     /// let project = Project::get(&client, "custom+org/project".to_string()).await?;
@@ -148,6 +156,10 @@ impl Project {
     }
 
     /// Get all revisions with custom query filters.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the API request fails.
     pub async fn revisions_with_query(
         &self,
         client: &FossaClient,
@@ -159,6 +171,10 @@ impl Project {
     /// Get the latest revision as a full Revision model.
     ///
     /// Returns `None` if the project has no revisions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the API request fails.
     pub async fn get_latest_revision(
         &self,
         client: &FossaClient,
@@ -230,7 +246,7 @@ impl Get for Project {
     #[tracing::instrument(skip(client))]
     async fn get(client: &FossaClient, locator: String) -> Result<Self> {
         let encoded_locator = urlencoding::encode(&locator);
-        let path = format!("projects/{}", encoded_locator);
+        let path = format!("projects/{encoded_locator}");
 
         let response = client.get(&path).await?;
         let project: Project = response.json().await.map_err(FossaError::HttpError)?;
@@ -278,7 +294,7 @@ impl Update for Project {
     #[tracing::instrument(skip(client))]
     async fn update(client: &FossaClient, locator: String, params: Self::Params) -> Result<Self> {
         let encoded_locator = urlencoding::encode(&locator);
-        let path = format!("projects/{}", encoded_locator);
+        let path = format!("projects/{encoded_locator}");
 
         let response = client.put(&path, &params).await?;
         let project: Project = response.json().await.map_err(FossaError::HttpError)?;

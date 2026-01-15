@@ -4,7 +4,7 @@ use fossapi::mcp::FossaServer;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::ErrorData as McpError;
 
-/// Test that FossaServer can be created with a client.
+/// Test that `FossaServer` can be created with a client.
 #[test]
 fn fossa_server_new_creates_server() {
     // We can't test from_env() without env vars, but we can test the struct exists
@@ -13,7 +13,7 @@ fn fossa_server_new_creates_server() {
     assert_server_handler::<FossaServer>();
 }
 
-/// Test that get_info returns correct server info.
+/// Test that `get_info` returns correct server info.
 #[test]
 fn get_info_returns_server_info_with_name_fossapi() {
     // Create a server with a mock client would require env vars.
@@ -28,7 +28,7 @@ fn get_info_returns_server_info_with_name_fossapi() {
     // Full integration testing would require FOSSA_API_KEY.
 }
 
-/// Test that list_tools returns 3 tools.
+/// Test that `list_tools` returns 3 tools.
 #[tokio::test]
 async fn list_tools_returns_three_tools() {
     // This would require a real client with env vars.
@@ -38,7 +38,7 @@ async fn list_tools_returns_three_tools() {
     use rmcp::RoleServer;
 
     // Trait constraint verification
-    #[allow(dead_code)]
+    #[allow(dead_code, clippy::unused_async)]
     async fn has_list_tools<T: ServerHandler>(
         _server: &T,
         _request: PaginatedRequestParam,
@@ -49,7 +49,7 @@ async fn list_tools_returns_three_tools() {
     }
 }
 
-/// Test that call_tool dispatches to handlers.
+/// Test that `call_tool` dispatches to handlers.
 #[tokio::test]
 async fn call_tool_dispatches_to_handlers() {
     // This would require a real client with env vars.
@@ -59,7 +59,7 @@ async fn call_tool_dispatches_to_handlers() {
     use rmcp::RoleServer;
 
     // Trait constraint verification
-    #[allow(dead_code)]
+    #[allow(dead_code, clippy::unused_async)]
     async fn has_call_tool<T: ServerHandler>(
         _server: &T,
         _request: CallToolRequestParam,
@@ -73,14 +73,14 @@ async fn call_tool_dispatches_to_handlers() {
 mod unit_tests {
     use super::*;
 
-    /// Verify FossaServer implements Clone (required by ServerHandler).
+    /// Verify `FossaServer` implements `Clone` (required by `ServerHandler`).
     #[test]
     fn fossa_server_is_clone() {
         fn assert_clone<T: Clone>() {}
         assert_clone::<FossaServer>();
     }
 
-    /// Verify FossaServer implements Send + Sync (required by ServerHandler).
+    /// Verify `FossaServer` implements `Send` + `Sync` (required by `ServerHandler`).
     #[test]
     fn fossa_server_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}

@@ -3,11 +3,11 @@
 use rmcp::handler::server::ServerHandler;
 use schemars::JsonSchema;
 
-/// Compile-time verification that rmcp::ServerHandler is importable.
+/// Compile-time verification that `rmcp::ServerHandler` is importable.
 #[allow(dead_code)]
 fn assert_server_handler_exists<T: ServerHandler>() {}
 
-/// Compile-time verification that schemars::JsonSchema is importable.
+/// Compile-time verification that `schemars::JsonSchema` is importable.
 #[derive(JsonSchema)]
 #[allow(dead_code)]
 struct TestSchema {

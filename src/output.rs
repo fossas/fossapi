@@ -11,6 +11,7 @@ use crate::{Issue, Project, Revision};
 /// suitable for terminal display when `--json` is not specified.
 pub trait PrettyPrint {
     /// Returns a formatted string for terminal display.
+    #[must_use]
     fn pretty_print(&self) -> String;
 }
 
@@ -20,7 +21,7 @@ impl PrettyPrint for Project {
         let divider = "─".repeat(locator.len().max(30));
 
         let mut lines = vec![
-            format!("Project: {}", locator),
+            format!("Project: {locator}"),
             divider,
             format!("Title:          {}", self.title),
         ];
@@ -37,7 +38,8 @@ impl PrettyPrint for Project {
         }
 
         if let Some(ref scanned) = self.scanned {
-            lines.push(format!("Scanned:        {}", scanned.format("%Y-%m-%d %H:%M:%S UTC")));
+            let formatted = scanned.format("%Y-%m-%d %H:%M:%S UTC");
+            lines.push(format!("Scanned:        {formatted}"));
         }
 
         if self.public {
@@ -51,27 +53,29 @@ impl PrettyPrint for Project {
 impl PrettyPrint for Revision {
     fn pretty_print(&self) -> String {
         let divider = "─".repeat(self.locator.len().max(30));
+        let resolved_str = if self.resolved { "yes" } else { "no" };
 
         let mut lines = vec![
             format!("Revision: {}", self.locator),
             divider,
-            format!("Resolved:       {}", if self.resolved { "yes" } else { "no" }),
+            format!("Resolved:       {resolved_str}"),
         ];
 
         if let Some(ref source) = self.source {
-            lines.push(format!("Source:         {}", source));
+            lines.push(format!("Source:         {source}"));
         }
 
         if let Some(ref source_type) = self.source_type {
-            lines.push(format!("Source Type:    {}", source_type));
+            lines.push(format!("Source Type:    {source_type}"));
         }
 
         if let Some(ref created) = self.created_at {
-            lines.push(format!("Created:        {}", created.format("%Y-%m-%d %H:%M:%S UTC")));
+            let formatted = created.format("%Y-%m-%d %H:%M:%S UTC");
+            lines.push(format!("Created:        {formatted}"));
         }
 
         if let Some(count) = self.unresolved_issue_count {
-            lines.push(format!("Unresolved:     {} issues", count));
+            lines.push(format!("Unresolved:     {count} issues"));
         }
 
         lines.join("\n")
@@ -90,16 +94,16 @@ impl PrettyPrint for Issue {
         ];
 
         if let Some(ref severity) = self.severity {
-            lines.push(format!("Severity:       {}", severity));
+            lines.push(format!("Severity:       {severity}"));
         }
 
         if let Some(ref cve) = self.cve {
-            lines.push(format!("CVE:            {}", cve));
+            lines.push(format!("CVE:            {cve}"));
         }
 
         // Source package info
         if let Some(ref name) = self.source.name {
-            lines.push(format!("Source:         {}", name));
+            lines.push(format!("Source:         {name}"));
         } else {
             lines.push(format!("Source:         {}", self.source.id));
         }
@@ -117,7 +121,7 @@ impl PrettyPrint for Issue {
         ));
 
         if let Some(ref license) = self.license {
-            lines.push(format!("License:        {}", license));
+            lines.push(format!("License:        {license}"));
         }
 
         lines.join("\n")
