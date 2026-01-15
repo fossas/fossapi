@@ -21,7 +21,7 @@ use crate::{
 
 /// FOSSA MCP Server.
 ///
-/// Implements the MCP ServerHandler trait, providing tools to interact
+/// Implements the MCP `ServerHandler` trait, providing tools to interact
 /// with the FOSSA API through the Model Context Protocol.
 ///
 /// # Tools
@@ -47,7 +47,7 @@ pub struct FossaServer {
 }
 
 impl FossaServer {
-    /// Create a new FossaServer from environment variables.
+    /// Create a new `FossaServer` from environment variables.
     ///
     /// Uses `FOSSA_API_KEY` for authentication and optionally `FOSSA_API_URL`
     /// for the base URL.
@@ -60,7 +60,8 @@ impl FossaServer {
         Ok(Self::new(client))
     }
 
-    /// Create a new FossaServer with an existing client.
+    /// Create a new `FossaServer` with an existing client.
+    #[must_use]
     pub fn new(client: FossaClient) -> Self {
         Self {
             client: Arc::new(client),
@@ -77,9 +78,9 @@ impl FossaServer {
         }
     }
 
-    /// Convert FossaError to McpError.
-    fn to_mcp_error(err: FossaError) -> McpError {
-        match &err {
+    /// Convert `FossaError` to `McpError`.
+    fn to_mcp_error(err: &FossaError) -> McpError {
+        match err {
             FossaError::NotFound { entity_type, id } => {
                 McpError::resource_not_found(format!("{entity_type} '{id}' not found"), None)
             }
@@ -115,14 +116,14 @@ impl FossaServer {
             EntityType::Project => {
                 let project = Project::get(&self.client, params.id)
                     .await
-                    .map_err(Self::to_mcp_error)?;
+                    .map_err(|e| Self::to_mcp_error(&e))?;
                 serde_json::to_string_pretty(&project)
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?
             }
             EntityType::Revision => {
                 let revision = Revision::get(&self.client, params.id)
                     .await
-                    .map_err(Self::to_mcp_error)?;
+                    .map_err(|e| Self::to_mcp_error(&e))?;
                 serde_json::to_string_pretty(&revision)
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?
             }
@@ -133,7 +134,7 @@ impl FossaServer {
                     .map_err(|_| McpError::invalid_params("Issue ID must be a number", None))?;
                 let issue = Issue::get(&self.client, id)
                     .await
-                    .map_err(Self::to_mcp_error)?;
+                    .map_err(|e| Self::to_mcp_error(&e))?;
                 serde_json::to_string_pretty(&issue)
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?
             }
@@ -158,7 +159,7 @@ impl FossaServer {
                 let query = ProjectListQuery::default();
                 let page_result = Project::list_page(&self.client, &query, page, count)
                     .await
-                    .map_err(Self::to_mcp_error)?;
+                    .map_err(|e| Self::to_mcp_error(&e))?;
                 serde_json::to_string_pretty(&page_result)
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?
             }
@@ -173,7 +174,7 @@ impl FossaServer {
                 let page_result =
                     crate::get_revisions_page(&self.client, &parent, query, page, count)
                         .await
-                        .map_err(Self::to_mcp_error)?;
+                        .map_err(|e| Self::to_mcp_error(&e))?;
                 serde_json::to_string_pretty(&page_result)
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?
             }
@@ -181,7 +182,7 @@ impl FossaServer {
                 let query = IssueListQuery::default();
                 let page_result = crate::get_issues_page(&self.client, query, page, count)
                     .await
-                    .map_err(Self::to_mcp_error)?;
+                    .map_err(|e| Self::to_mcp_error(&e))?;
                 serde_json::to_string_pretty(&page_result)
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?
             }
@@ -196,7 +197,7 @@ impl FossaServer {
                 let page_result =
                     crate::get_dependencies_page(&self.client, &parent, query, page, count)
                         .await
-                        .map_err(Self::to_mcp_error)?;
+                        .map_err(|e| Self::to_mcp_error(&e))?;
                 serde_json::to_string_pretty(&page_result)
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?
             }
@@ -219,7 +220,7 @@ impl FossaServer {
                 };
                 let project = Project::update(&self.client, params.locator, update_params)
                     .await
-                    .map_err(Self::to_mcp_error)?;
+                    .map_err(|e| Self::to_mcp_error(&e))?;
                 let result = serde_json::to_string_pretty(&project)
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                 Ok(CallToolResult::success(vec![Content::text(result)]))
@@ -243,12 +244,12 @@ impl FossaServer {
 impl ServerHandler for FossaServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
-            protocol_version: Default::default(),
+            protocol_version: rmcp::model::ProtocolVersion::default(),
             capabilities: ServerCapabilities {
                 tools: Some(ToolsCapability {
                     list_changed: Some(false),
                 }),
-                ..Default::default()
+                ..ServerCapabilities::default()
             },
             server_info: Implementation {
                 name: "fossapi".to_string(),
@@ -755,11 +756,10 @@ mod tests {
         let result = server.handle_get(params).await;
 
         let err = result.expect_err("get dependency should fail");
-        let err_msg = format!("{:?}", err);
+        let err_msg = format!("{err:?}");
         assert!(
             err_msg.contains("does not support get") || err_msg.contains("list with a parent"),
-            "Error should mention dependency doesn't support get: {}",
-            err_msg
+            "Error should mention dependency doesn't support get: {err_msg}"
         );
     }
 
@@ -776,11 +776,10 @@ mod tests {
         let result = server.handle_get(params).await;
 
         let err = result.expect_err("get issue with invalid ID should fail");
-        let err_msg = format!("{:?}", err);
+        let err_msg = format!("{err:?}");
         assert!(
             err_msg.contains("must be a number"),
-            "Error should mention issue ID must be numeric: {}",
-            err_msg
+            "Error should mention issue ID must be numeric: {err_msg}"
         );
     }
 
