@@ -230,7 +230,7 @@ impl Get for Project {
     #[tracing::instrument(skip(client))]
     async fn get(client: &FossaClient, locator: String) -> Result<Self> {
         let encoded_locator = urlencoding::encode(&locator);
-        let path = format!("projects/{}", encoded_locator);
+        let path = format!("projects/{encoded_locator}");
 
         let response = client.get(&path).await?;
         let project: Project = response.json().await.map_err(FossaError::HttpError)?;
@@ -278,7 +278,7 @@ impl Update for Project {
     #[tracing::instrument(skip(client))]
     async fn update(client: &FossaClient, locator: String, params: Self::Params) -> Result<Self> {
         let encoded_locator = urlencoding::encode(&locator);
-        let path = format!("projects/{}", encoded_locator);
+        let path = format!("projects/{encoded_locator}");
 
         let response = client.put(&path, &params).await?;
         let project: Project = response.json().await.map_err(FossaError::HttpError)?;

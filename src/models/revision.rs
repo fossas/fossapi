@@ -131,7 +131,7 @@ impl Revision {
 
     /// Check if the revision has any issues.
     pub fn has_issues(&self) -> bool {
-        self.unresolved_issue_count.map_or(false, |c| c > 0)
+        self.unresolved_issue_count.is_some_and(|c| c > 0)
     }
 
     /// Get the issue count for this revision.
@@ -199,7 +199,7 @@ impl Get for Revision {
     async fn get(client: &FossaClient, locator: String) -> Result<Self> {
         let encoded_locator = urlencoding::encode(&locator);
         // Note: Single revision endpoint may differ - using revisions list and filtering
-        let path = format!("revisions/{}", encoded_locator);
+        let path = format!("revisions/{encoded_locator}");
 
         let response = client.get(&path).await?;
         let revision: Revision = response.json().await.map_err(FossaError::HttpError)?;
@@ -220,7 +220,7 @@ impl List for Revision {
     ) -> Result<Page<Self>> {
         let (project_locator, filters) = query;
         let encoded_locator = urlencoding::encode(project_locator);
-        let path = format!("projects/{}/revisions", encoded_locator);
+        let path = format!("projects/{encoded_locator}/revisions");
 
         // The API returns all revisions grouped by branch (no server-side pagination)
         let response = client.get(&path).await?;
@@ -235,7 +235,7 @@ impl List for Revision {
                 filters
                     .branch
                     .as_ref()
-                    .map_or(true, |filter| branch_name == filter)
+                    .is_none_or(|filter| branch_name == filter)
             })
             .flat_map(|(_, revisions)| revisions)
             .collect();
