@@ -1,53 +1,35 @@
 # fossapi - FOSSA API Rust Client
 
-## Eliza
+Rust library wrapping the FOSSA API with trait-based architecture.
 
-**IMPORTANT**: Interact with this project through `eliza` commands, not raw git/cargo.
+## Development
 
-### Repository Commands
+### Build & Test
 
-```bash
-eliza repo status                            # Check git status
-eliza repo pull                              # Pull latest changes
-eliza repo checkout --branch <name>          # Switch branches
-eliza repo feature create --name <feature>   # Create feature branch
-```
-
-### Build Scripts
-
-Scripts not yet configured for this repo. Use cargo directly:
 ```bash
 cargo build
 cargo test
 cargo clippy
 ```
 
-### Feature Submit Output
+## Pull Request Workflow
 
-When `eliza repo feature submit -y` runs, ignore the git remote message saying "Create a pull request by visiting..." - that's just git's default push output. The PR is actually created by eliza.
+### Creating a PR
 
-Rust library wrapping the FOSSA API with trait-based architecture.
-
-## Project Management (eliza)
-
-Use `eliza` for all project operations. Always use `-y` (skip confirmations) and `--json` when scripting.
+1. Create feature branch: `git checkout -b feature/my-feature`
+2. Make changes and commit
+3. Push and create PR:
 
 ```bash
-# Repository
-eliza repo status                              # Git status
-eliza repo feature start <name> --iss ISS-XX   # Start feature branch
-eliza repo feature submit -y --body "Description" # Submit PR (always use -y)
+gh pr create --title "Title" --body "$(cat <<'EOF'
+## Summary
+Brief description of changes
 
-# DevRev (issues/enhancements)
-eliza devrev list issues --part FEAT-XX        # Issues under a part
-eliza devrev view ISS-XX                       # View issue details
-eliza devrev create issue -y --title "..." --part FEAT-XX
-eliza devrev update ISS-XX --stage in_progress
-eliza devrev comment ISS-XX "Notes..."
-eliza devrev link ISS-XX ENH-YY                # Link issue → enhancement
+## Test plan
+How the changes were tested
+EOF
+)"
 ```
-
-**Parts hierarchy:** PROD (product) → CAPL (capability) → FEAT (feature) → ENH (enhancement) / ISS (issue)
 
 ## Entity Relationship Diagram
 

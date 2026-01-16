@@ -88,7 +88,7 @@ impl FossaClient {
         let base_url_str = if base_url.ends_with('/') {
             base_url.to_string()
         } else {
-            format!("{}/", base_url)
+            format!("{base_url}/")
         };
 
         let base_url = Url::parse(&base_url_str)?;
@@ -219,7 +219,7 @@ impl FossaClient {
     ) -> String {
         let body = match response.text().await {
             Ok(b) => b,
-            Err(_) => return format!("HTTP {}", status),
+            Err(_) => return format!("HTTP {status}"),
         };
 
         // Try to parse as JSON and extract message field

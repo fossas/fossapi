@@ -654,7 +654,7 @@ impl List for Dependency {
     ) -> Result<Page<Self>> {
         let (revision_locator, filters) = query;
         let encoded_locator = urlencoding::encode(revision_locator);
-        let path = format!("v2/revisions/{}/dependencies", encoded_locator);
+        let path = format!("v2/revisions/{encoded_locator}/dependencies");
 
         #[derive(Serialize)]
         struct RequestParams<'a> {

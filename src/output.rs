@@ -59,11 +59,11 @@ impl PrettyPrint for Revision {
         ];
 
         if let Some(ref source) = self.source {
-            lines.push(format!("Source:         {}", source));
+            lines.push(format!("Source:         {source}"));
         }
 
         if let Some(ref source_type) = self.source_type {
-            lines.push(format!("Source Type:    {}", source_type));
+            lines.push(format!("Source Type:    {source_type}"));
         }
 
         if let Some(ref created) = self.created_at {
@@ -71,7 +71,7 @@ impl PrettyPrint for Revision {
         }
 
         if let Some(count) = self.unresolved_issue_count {
-            lines.push(format!("Unresolved:     {} issues", count));
+            lines.push(format!("Unresolved:     {count} issues"));
         }
 
         lines.join("\n")
@@ -90,16 +90,16 @@ impl PrettyPrint for Issue {
         ];
 
         if let Some(ref severity) = self.severity {
-            lines.push(format!("Severity:       {}", severity));
+            lines.push(format!("Severity:       {severity}"));
         }
 
         if let Some(ref cve) = self.cve {
-            lines.push(format!("CVE:            {}", cve));
+            lines.push(format!("CVE:            {cve}"));
         }
 
         // Source package info
         if let Some(ref name) = self.source.name {
-            lines.push(format!("Source:         {}", name));
+            lines.push(format!("Source:         {name}"));
         } else {
             lines.push(format!("Source:         {}", self.source.id));
         }
@@ -117,7 +117,7 @@ impl PrettyPrint for Issue {
         ));
 
         if let Some(ref license) = self.license {
-            lines.push(format!("License:        {}", license));
+            lines.push(format!("License:        {license}"));
         }
 
         lines.join("\n")
