@@ -15,8 +15,8 @@ use std::sync::Arc;
 
 use crate::{
     mcp::{EntityType, GetParams, ListParams, UpdateParams},
-    DependencyListQuery, FossaClient, FossaError, Get, Issue, IssueListQuery, List, Project,
-    ProjectListQuery, ProjectUpdateParams, Revision, RevisionListQuery, Update,
+    DependencyListQuery, FossaClient, FossaError, Get, Issue, IssueCategory, IssueListQuery, List,
+    Project, ProjectListQuery, ProjectUpdateParams, Revision, RevisionListQuery, Update,
 };
 
 /// FOSSA MCP Server.
@@ -178,7 +178,16 @@ impl FossaServer {
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?
             }
             EntityType::Issue => {
-                let query = IssueListQuery::default();
+                let category = params.category.ok_or_else(|| {
+                    McpError::invalid_params(
+                        "category is required for listing issues (vulnerability, licensing, quality)",
+                        None,
+                    )
+                })?;
+                let query = IssueListQuery {
+                    category: Some(category),
+                    ..Default::default()
+                };
                 let page_result = crate::get_issues_page(&self.client, query, page, count)
                     .await
                     .map_err(Self::to_mcp_error)?;
@@ -279,7 +288,7 @@ impl ServerHandler for FossaServer {
                 "List FOSSA entities with pagination. \
                  Projects: no parent needed. \
                  Revisions: parent = project locator. \
-                 Issues: no parent needed. \
+                 Issues: category required (vulnerability, licensing, quality). \
                  Dependencies: parent = revision locator.",
                 Self::schema::<ListParams>(),
             ),
@@ -415,6 +424,7 @@ mod tests {
             parent: None,
             page: None,
             count: None,
+            category: None,
         };
 
         let result = server.handle_list(params).await.unwrap();
@@ -468,6 +478,7 @@ mod tests {
             parent: Some("custom+org/repo".to_string()),
             page: None,
             count: None,
+            category: None,
         };
 
         let result = server.handle_list(params).await.unwrap();
@@ -505,6 +516,7 @@ mod tests {
             parent: Some("custom+org/repo$abc123".to_string()),
             page: None,
             count: None,
+            category: None,
         };
 
         let result = server.handle_list(params).await.unwrap();
@@ -524,6 +536,7 @@ mod tests {
             parent: None, // Missing required parent
             page: None,
             count: None,
+            category: None,
         };
 
         let result = server.handle_list(params).await;
@@ -546,6 +559,7 @@ mod tests {
             parent: None, // Missing required parent
             page: None,
             count: None,
+            category: None,
         };
 
         let result = server.handle_list(params).await;
@@ -581,6 +595,7 @@ mod tests {
             parent: None,
             page: None,   // Should default to 1
             count: None,  // Should default to 20
+            category: None,
         };
 
         let _ = server.handle_list(params).await;
@@ -613,6 +628,7 @@ mod tests {
             parent: None,
             page: Some(1),
             count: Some(200),  // Should be capped to 100
+            category: None,
         };
 
         let _ = server.handle_list(params).await;
@@ -960,5 +976,71 @@ mod tests {
         } else {
             panic!("Expected text content");
         }
+    }
+
+    // =========================================================================
+    // ISS-10910: MCP Issue Category Parameter Tests
+    // =========================================================================
+
+    /// Test: list(entity: issue, category: vulnerability) succeeds
+    #[tokio::test]
+    async fn handle_list_issues_with_category() {
+        let mock_server = MockServer::start().await;
+
+        let response = serde_json::json!({
+            "issues": [{
+                "id": 123,
+                "type": "vulnerability",
+                "source": {"id": "npm+pkg$1.0.0"},
+                "depths": {"direct": 1, "deep": 0},
+                "statuses": {"active": 1, "ignored": 0},
+                "projects": []
+            }]
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/v2/issues"))
+            .and(query_param("category", "vulnerability"))
+            .and(query_param("page", "1"))
+            .and(query_param("count", "20"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = ListParams {
+            entity: EntityType::Issue,
+            parent: None,
+            page: None,
+            count: None,
+            category: Some(IssueCategory::Vulnerability),
+        };
+
+        let result = server.handle_list(params).await.unwrap();
+        assert!(!result.is_error.unwrap_or(false));
+    }
+
+    /// Test: list(entity: issue) without category returns error
+    #[tokio::test]
+    async fn handle_list_issues_without_category_returns_error() {
+        let mock_server = MockServer::start().await;
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = ListParams {
+            entity: EntityType::Issue,
+            parent: None,
+            page: None,
+            count: None,
+            category: None, // Missing required category
+        };
+
+        let result = server.handle_list(params).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.to_lowercase().contains("category"));
     }
 }

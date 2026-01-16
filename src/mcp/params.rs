@@ -3,6 +3,8 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+use crate::IssueCategory;
+
 /// Entity types supported by MCP tools.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -40,6 +42,9 @@ pub struct ListParams {
     /// Number of items per page (max 100).
     #[serde(default)]
     pub count: Option<u32>,
+    /// Issue category filter (required for Issue entity: vulnerability, licensing, quality).
+    #[serde(default)]
+    pub category: Option<IssueCategory>,
 }
 
 /// Parameters for the `update` MCP tool.
@@ -83,6 +88,7 @@ mod tests {
         assert!(json.contains("parent"));
         assert!(json.contains("page"));
         assert!(json.contains("count"));
+        assert!(json.contains("category"));
     }
 
     #[test]
@@ -120,6 +126,7 @@ mod tests {
         assert!(params.parent.is_none());
         assert!(params.page.is_none());
         assert!(params.count.is_none());
+        assert!(params.category.is_none());
     }
 
     #[test]
@@ -140,5 +147,20 @@ mod tests {
         assert_eq!(params.locator, "custom+org/repo");
         assert_eq!(params.title, Some("New Title".to_string()));
         assert!(params.description.is_none());
+    }
+
+    #[test]
+    fn list_params_deserializes_with_category() {
+        let json = r#"{"entity": "issue", "category": "vulnerability"}"#;
+        let params: ListParams = serde_json::from_str(json).unwrap();
+        assert!(matches!(params.entity, EntityType::Issue));
+        assert!(matches!(params.category, Some(IssueCategory::Vulnerability)));
+    }
+
+    #[test]
+    fn list_params_schema_includes_category() {
+        let schema = schemars::schema_for!(ListParams);
+        let json = serde_json::to_string(&schema).unwrap();
+        assert!(json.contains("category"));
     }
 }
