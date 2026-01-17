@@ -3,15 +3,16 @@
 //! Uses wiremock to mock the FOSSA API and test the MCP get tool dispatch.
 
 use fossapi::mcp::{EntityType, FossaServer, GetParams};
-use fossapi::FossaClient;
-use wiremock::matchers::{method, path};
+use fossapi::{FossaClient, IssueCategory};
+use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Helper to build GetParams.
-fn get_params(entity: EntityType, id: &str) -> GetParams {
+fn get_params(entity: EntityType, id: &str, category: Option<IssueCategory>) -> GetParams {
     GetParams {
         entity,
         id: id.to_string(),
+        category,
     }
 }
 
@@ -44,7 +45,7 @@ async fn test_mcp_get_project_returns_json() {
     let server = FossaServer::new(client);
 
     let result = server
-        .handle_get(get_params(EntityType::Project, "custom+123/test-project"))
+        .handle_get(get_params(EntityType::Project, "custom+123/test-project", None))
         .await
         .expect("handle_get should succeed");
 
@@ -75,7 +76,7 @@ async fn test_mcp_get_revision_returns_json() {
     let server = FossaServer::new(client);
 
     let result = server
-        .handle_get(get_params(EntityType::Revision, "custom+123/test$main"))
+        .handle_get(get_params(EntityType::Revision, "custom+123/test$main", None))
         .await
         .expect("handle_get should succeed");
 
@@ -102,6 +103,7 @@ async fn test_mcp_get_issue_returns_json() {
 
     Mock::given(method("GET"))
         .and(path("/v2/issues/12345"))
+        .and(query_param("category", "vulnerability"))
         .respond_with(ResponseTemplate::new(200).set_body_json(&issue_json))
         .expect(1)
         .mount(&mock_server)
@@ -111,7 +113,7 @@ async fn test_mcp_get_issue_returns_json() {
     let server = FossaServer::new(client);
 
     let result = server
-        .handle_get(get_params(EntityType::Issue, "12345"))
+        .handle_get(get_params(EntityType::Issue, "12345", Some(IssueCategory::Vulnerability)))
         .await
         .expect("handle_get should succeed");
 
@@ -131,7 +133,7 @@ async fn test_mcp_get_dependency_returns_error() {
     let server = FossaServer::new(client);
 
     let result = server
-        .handle_get(get_params(EntityType::Dependency, "npm+lodash$4.17.21"))
+        .handle_get(get_params(EntityType::Dependency, "npm+lodash$4.17.21", None))
         .await;
 
     // Should return an error, not a success
@@ -153,7 +155,7 @@ async fn test_mcp_get_issue_with_invalid_id_returns_error() {
     let server = FossaServer::new(client);
 
     let result = server
-        .handle_get(get_params(EntityType::Issue, "not-a-number"))
+        .handle_get(get_params(EntityType::Issue, "not-a-number", Some(IssueCategory::Vulnerability)))
         .await;
 
     let err = result.expect_err("get issue with invalid ID should fail");
@@ -161,6 +163,27 @@ async fn test_mcp_get_issue_with_invalid_id_returns_error() {
     assert!(
         err_msg.contains("must be a number"),
         "Error should mention issue ID must be numeric: {}",
+        err_msg
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_get_issue_without_category_returns_error() {
+    let mock_server = MockServer::start().await;
+
+    // No mock needed - should fail before HTTP request
+    let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+    let server = FossaServer::new(client);
+
+    let result = server
+        .handle_get(get_params(EntityType::Issue, "12345", None))
+        .await;
+
+    let err = result.expect_err("get issue without category should fail");
+    let err_msg = format!("{:?}", err);
+    assert!(
+        err_msg.to_lowercase().contains("category"),
+        "Error should mention category is required: {}",
         err_msg
     );
 }

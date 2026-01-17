@@ -14,6 +14,12 @@ use tokio::sync::RwLock;
 use crate::mock_server::state::MockState;
 use crate::Issue;
 
+/// Query parameters for getting a single issue.
+#[derive(Debug, Default, Deserialize)]
+pub struct GetIssueQuery {
+    pub category: Option<String>,
+}
+
 /// Query parameters for listing issues.
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,7 +43,20 @@ pub struct ListIssuesResponse {
 pub async fn get_issue(
     State(state): State<Arc<RwLock<MockState>>>,
     Path(id): Path<String>,
+    Query(query): Query<GetIssueQuery>,
 ) -> impl IntoResponse {
+    // Validate category is provided (required by FOSSA API)
+    if query.category.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Validation error",
+                "message": "Invalid option: expected one of \"licensing\"|\"vulnerability\"|\"quality\" at \"category\""
+            })),
+        )
+            .into_response();
+    }
+
     // Parse the ID as u64
     let id: u64 = match id.parse() {
         Ok(id) => id,
