@@ -131,7 +131,13 @@ impl FossaServer {
                     .id
                     .parse()
                     .map_err(|_| McpError::invalid_params("Issue ID must be a number", None))?;
-                let issue = Issue::get(&self.client, id)
+                let category = params.category.ok_or_else(|| {
+                    McpError::invalid_params(
+                        "category is required for getting issues (vulnerability, licensing, quality)",
+                        None,
+                    )
+                })?;
+                let issue = Issue::get_with_category(&self.client, id, category)
                     .await
                     .map_err(Self::to_mcp_error)?;
                 serde_json::to_string_pretty(&issue)
@@ -279,7 +285,7 @@ impl ServerHandler for FossaServer {
             Tool::new(
                 "get",
                 "Fetch a single FOSSA entity by ID. \
-                 Supports: project (by locator), revision (by locator), issue (by numeric ID). \
+                 Supports: project (by locator), revision (by locator), issue (by numeric ID, category required). \
                  Dependency must use list with parent.",
                 Self::schema::<GetParams>(),
             ),
@@ -664,6 +670,7 @@ mod tests {
         let params = GetParams {
             entity: EntityType::Project,
             id: "custom+123/test-project".to_string(),
+            category: None,
         };
 
         let result = server.handle_get(params).await.expect("handle_get should succeed");
@@ -701,6 +708,7 @@ mod tests {
         let params = GetParams {
             entity: EntityType::Revision,
             id: "custom+123/test$main".to_string(),
+            category: None,
         };
 
         let result = server.handle_get(params).await.expect("handle_get should succeed");
@@ -732,6 +740,7 @@ mod tests {
 
         Mock::given(method("GET"))
             .and(path("/v2/issues/12345"))
+            .and(query_param("category", "vulnerability"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&issue_json))
             .expect(1)
             .mount(&mock_server)
@@ -743,6 +752,7 @@ mod tests {
         let params = GetParams {
             entity: EntityType::Issue,
             id: "12345".to_string(),
+            category: Some(IssueCategory::Vulnerability),
         };
 
         let result = server.handle_get(params).await.expect("handle_get should succeed");
@@ -759,6 +769,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn handle_get_issue_without_category_returns_error() {
+        let mock_server = MockServer::start().await;
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = GetParams {
+            entity: EntityType::Issue,
+            id: "12345".to_string(),
+            category: None, // Missing required category
+        };
+
+        let result = server.handle_get(params).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.to_lowercase().contains("category"));
+    }
+
+    #[tokio::test]
     async fn handle_get_dependency_returns_error() {
         let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
         let server = FossaServer::new(client);
@@ -766,6 +795,7 @@ mod tests {
         let params = GetParams {
             entity: EntityType::Dependency,
             id: "npm+lodash$4.17.21".to_string(),
+            category: None,
         };
 
         let result = server.handle_get(params).await;
@@ -787,6 +817,7 @@ mod tests {
         let params = GetParams {
             entity: EntityType::Issue,
             id: "not-a-number".to_string(),
+            category: Some(IssueCategory::Vulnerability),
         };
 
         let result = server.handle_get(params).await;

@@ -532,6 +532,39 @@ impl Issue {
     pub fn package_version(&self) -> Option<&str> {
         self.source.version.as_deref()
     }
+
+    /// Fetch an issue by ID with category.
+    ///
+    /// The FOSSA API requires a category parameter when fetching issues.
+    ///
+    /// # Arguments
+    ///
+    /// * `client` - The FOSSA API client
+    /// * `id` - The issue ID
+    /// * `category` - The issue category (vulnerability, licensing, quality)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use fossapi::{FossaClient, Issue, IssueCategory};
+    ///
+    /// let client = FossaClient::from_env()?;
+    /// let issue = Issue::get_with_category(&client, 12345, IssueCategory::Vulnerability).await?;
+    /// ```
+    pub async fn get_with_category(
+        client: &FossaClient,
+        id: u64,
+        category: IssueCategory,
+    ) -> Result<Self> {
+        #[derive(Serialize)]
+        struct Query {
+            category: IssueCategory,
+        }
+        let path = format!("v2/issues/{id}");
+        let response = client.get_with_query(&path, &Query { category }).await?;
+        let issue: Issue = response.json().await.map_err(FossaError::HttpError)?;
+        Ok(issue)
+    }
 }
 
 /// Source package information for an issue.

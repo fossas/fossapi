@@ -26,6 +26,9 @@ pub struct GetParams {
     pub entity: EntityType,
     /// The entity identifier (locator or ID).
     pub id: String,
+    /// Issue category (required for Issue entity: vulnerability, licensing, quality).
+    #[serde(default)]
+    pub category: Option<IssueCategory>,
 }
 
 /// Parameters for the `list` MCP tool.
@@ -78,6 +81,7 @@ mod tests {
         let json = serde_json::to_string(&schema).unwrap();
         assert!(json.contains("entity"));
         assert!(json.contains("id"));
+        assert!(json.contains("category"));
     }
 
     #[test]
@@ -116,6 +120,16 @@ mod tests {
         let params: GetParams = serde_json::from_str(json).unwrap();
         assert!(matches!(params.entity, EntityType::Project));
         assert_eq!(params.id, "custom+org/repo");
+        assert!(params.category.is_none());
+    }
+
+    #[test]
+    fn get_params_deserializes_with_category() {
+        let json = r#"{"entity": "issue", "id": "12345", "category": "vulnerability"}"#;
+        let params: GetParams = serde_json::from_str(json).unwrap();
+        assert!(matches!(params.entity, EntityType::Issue));
+        assert_eq!(params.id, "12345");
+        assert!(matches!(params.category, Some(IssueCategory::Vulnerability)));
     }
 
     #[test]
