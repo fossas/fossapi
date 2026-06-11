@@ -6,7 +6,7 @@ use clap::Parser;
 use fossapi::cli::{Cli, Command, Entity, GetCommand, ListCommand};
 use fossapi::{
     get_dependencies, FossaClient, Get, Issue, List, Page, PrettyPrint, Project,
-    ProjectUpdateParams, Revision, Update,
+    ProjectUpdateParams, Revision, Snippet, SnippetListQuery, SnippetLocation, SnippetPath, Update,
 };
 use serde::Serialize;
 use std::process::ExitCode;
@@ -67,6 +67,18 @@ async fn handle_get(
             let issue = Issue::get(client, id).await?;
             output_single(&issue, json)?;
         }
+        GetCommand::Snippet { revision, snippet } => {
+            let details = fossapi::get_snippet_details(client, &revision, &snippet).await?;
+            output_single(&details, json)?;
+        }
+        GetCommand::SnippetMatch {
+            revision,
+            snippet,
+            path,
+        } => {
+            let details = fossapi::get_snippet_match(client, &revision, &snippet, &path).await?;
+            output_single(&details, json)?;
+        }
     }
     Ok(())
 }
@@ -116,6 +128,54 @@ async fn handle_list(
                 println!("\n{} revisions for {}", revisions.len(), project);
             }
             let _ = (page, count);
+        }
+        ListCommand::Snippets {
+            revision,
+            path,
+            page,
+            count,
+        } => {
+            let query = SnippetListQuery {
+                path,
+                ..Default::default()
+            };
+            let page = page.unwrap_or(1);
+            let count = count.unwrap_or(20);
+            let snippets = fossapi::get_snippets_page(client, &revision, query, page, count).await?;
+            output_page(&snippets, json, |s| SnippetRow::from(s))?;
+        }
+        ListCommand::SnippetLocations {
+            revision,
+            path,
+            with_lines,
+        } => {
+            let query = SnippetListQuery {
+                path,
+                ..Default::default()
+            };
+            let locations =
+                fossapi::get_snippet_locations(client, &revision, query, with_lines).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&locations)?);
+            } else {
+                let rows: Vec<SnippetLocationRow> =
+                    locations.iter().map(SnippetLocationRow::from).collect();
+                println!("{}", Table::new(rows));
+                println!("\n{} match location(s)", locations.len());
+            }
+        }
+        ListCommand::SnippetPaths { revision, path } => {
+            let query = SnippetListQuery {
+                path,
+                ..Default::default()
+            };
+            let paths = fossapi::get_snippet_paths(client, &revision, query).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&paths)?);
+            } else {
+                let rows: Vec<SnippetPathRow> = paths.iter().map(SnippetPathRow::from).collect();
+                println!("{}", Table::new(rows));
+            }
         }
     }
     Ok(())
@@ -289,6 +349,72 @@ impl From<&fossapi::Revision> for RevisionRow {
             locator: r.locator.clone(),
             resolved: if r.resolved { "yes" } else { "no" }.to_string(),
             source: r.source.clone().unwrap_or_default(),
+        }
+    }
+}
+
+#[derive(Tabled)]
+struct SnippetRow {
+    id: String,
+    package: String,
+    version: String,
+    #[tabled(rename = "match")]
+    match_pct: String,
+    files: u32,
+}
+
+impl From<&Snippet> for SnippetRow {
+    fn from(s: &Snippet) -> Self {
+        Self {
+            id: s.id.clone(),
+            package: s.package.clone(),
+            version: s.version.clone(),
+            match_pct: format!("{:.0}%", s.highest_match_percentage * 100.0),
+            files: s.match_count,
+        }
+    }
+}
+
+#[derive(Tabled)]
+struct SnippetLocationRow {
+    file: String,
+    lines: String,
+    package: String,
+    #[tabled(rename = "match")]
+    match_pct: String,
+    snippet: String,
+}
+
+impl From<&SnippetLocation> for SnippetLocationRow {
+    fn from(l: &SnippetLocation) -> Self {
+        let lines = match (l.line_start, l.line_end) {
+            (Some(lo), Some(hi)) => format!("{lo}-{hi}"),
+            _ => "-".to_string(),
+        };
+        Self {
+            file: l.path.clone(),
+            lines,
+            package: format!("{} {}", l.package, l.version),
+            match_pct: format!("{:.0}%", l.match_percentage * 100.0),
+            snippet: l.snippet_id.clone(),
+        }
+    }
+}
+
+#[derive(Tabled)]
+struct SnippetPathRow {
+    #[tabled(rename = "type")]
+    path_type: String,
+    path: String,
+    count: u32,
+}
+
+impl From<&SnippetPath> for SnippetPathRow {
+    fn from(p: &SnippetPath) -> Self {
+        Self {
+            path_type: p.path_type.clone(),
+            path: p.path.clone(),
+            count: p.count,
         }
     }
 }

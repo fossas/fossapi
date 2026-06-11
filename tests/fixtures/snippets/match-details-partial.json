@@ -1,0 +1,50 @@
+{
+  "matchDetails": {
+    "path": "/Sources/Networking/Session.swift",
+    "matchPercentage": 0.91,
+    "referenceCode": [
+      {
+        "line": "func encode() {",
+        "lineNumber": 12,
+        "isHighlighted": false
+      },
+      {
+        "line": "  let data = serialize(self)",
+        "lineNumber": 13,
+        "isHighlighted": true
+      },
+      {
+        "line": "  return data",
+        "lineNumber": 14,
+        "isHighlighted": true
+      },
+      {
+        "line": "}",
+        "lineNumber": 15,
+        "isHighlighted": false
+      }
+    ],
+    "detectedCode": [
+      {
+        "line": "func encode() {",
+        "lineNumber": 40,
+        "isHighlighted": false
+      },
+      {
+        "line": "  let data = serialize(self)",
+        "lineNumber": 41,
+        "isHighlighted": true
+      },
+      {
+        "line": "  return data",
+        "lineNumber": 42,
+        "isHighlighted": true
+      },
+      {
+        "line": "}",
+        "lineNumber": 43,
+        "isHighlighted": false
+      }
+    ]
+  }
+}

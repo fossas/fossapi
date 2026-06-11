@@ -1,0 +1,62 @@
+{
+  "snippet": {
+    "id": "1295019",
+    "packageId": "724687",
+    "purl": "pkg:cocoapods/Alamofire@5.11.0",
+    "locator": "pod+Alamofire$5.11.0",
+    "package": "Alamofire",
+    "version": "5.11.0",
+    "kind": "file",
+    "matches": [
+      {
+        "path": "/Sources/Networking/Session.swift",
+        "matchPercentage": 1,
+        "rejectionDetails": {
+          "rejectedAt": "2026-06-10T20:13:11.038Z",
+          "rejectedBy": "sara@fossa.com"
+        }
+      }
+    ],
+    "highestMatchPercentage": 1,
+    "homeUrl": "https://github.com/alamofire/alamofire",
+    "codeUrl": "https://github.com/alamofire/alamofire",
+    "otherVersions": [
+      {
+        "version": "5.9.1",
+        "matchCount": 1
+      },
+      {
+        "version": "5.11.2",
+        "matchCount": 1
+      }
+    ],
+    "labels": [],
+    "rejectionDetails": {
+      "rejectedAt": "2026-06-10T20:13:11.038Z",
+      "rejectedBy": "sara@fossa.com"
+    },
+    "licenses": [
+      {
+        "signature": "MIT",
+        "type": "declared"
+      }
+    ],
+    "issueCounts": {
+      "licensing": {
+        "denied": 0,
+        "flagged": 0,
+        "unknown": 0
+      },
+      "security": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "unknown": 0
+      }
+    },
+    "isVendored": false,
+    "isConverted": false,
+    "matchCount": 1
+  }
+}

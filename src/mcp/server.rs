@@ -14,9 +14,10 @@ use schemars::JsonSchema;
 use std::sync::Arc;
 
 use crate::{
-    mcp::{EntityType, GetParams, ListParams, UpdateParams},
+    mcp::{EntityType, GetParams, ListParams, SnippetMatchParams, UpdateParams},
     DependencyListQuery, FossaClient, FossaError, Get, Issue, IssueCategory, IssueListQuery, List,
-    Project, ProjectListQuery, ProjectUpdateParams, Revision, RevisionListQuery, Update,
+    Project, ProjectListQuery, ProjectUpdateParams, Revision, RevisionListQuery, SnippetListQuery,
+    Update,
 };
 
 /// FOSSA MCP Server.
@@ -149,6 +150,13 @@ impl FossaServer {
                     None,
                 ));
             }
+            EntityType::Snippet => {
+                return Err(McpError::invalid_params(
+                    "Snippet does not support get. Use list with a parent revision locator, \
+                     or the snippet_match tool to drill into a single match.",
+                    None,
+                ));
+            }
         };
 
         Ok(CallToolResult::success(vec![Content::text(result)]))
@@ -215,8 +223,41 @@ impl FossaServer {
                 serde_json::to_string_pretty(&page_result)
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?
             }
+            EntityType::Snippet => {
+                let parent = params.parent.ok_or_else(|| {
+                    McpError::invalid_params(
+                        "parent is required for listing snippets (revision locator)",
+                        None,
+                    )
+                })?;
+                let query = SnippetListQuery {
+                    path: params.path.clone(),
+                    ..Default::default()
+                };
+                let with_lines = params.with_lines.unwrap_or(false);
+                let locations =
+                    crate::get_snippet_locations(&self.client, &parent, query, with_lines)
+                        .await
+                        .map_err(Self::to_mcp_error)?;
+                serde_json::to_string_pretty(&locations)
+                    .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            }
         };
 
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    /// Handle the `snippet_match` tool: drill into a single snippet match.
+    async fn handle_snippet_match(
+        &self,
+        params: SnippetMatchParams,
+    ) -> Result<CallToolResult, McpError> {
+        let details =
+            crate::get_snippet_match(&self.client, &params.revision, &params.snippet, &params.path)
+                .await
+                .map_err(Self::to_mcp_error)?;
+        let result = serde_json::to_string_pretty(&details)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(result)]))
     }
 
@@ -251,6 +292,10 @@ impl FossaServer {
                 "Update not supported for Dependency",
                 None,
             )),
+            EntityType::Snippet => Err(McpError::invalid_params(
+                "Update not supported for Snippet",
+                None,
+            )),
         }
     }
 }
@@ -270,7 +315,10 @@ impl ServerHandler for FossaServer {
                 version: env!("CARGO_PKG_VERSION").to_string(),
             },
             instructions: Some(
-                "FOSSA API MCP Server - Query projects, revisions, issues, and dependencies."
+                "FOSSA API MCP Server - Query projects, revisions, issues, dependencies, and \
+                 snippet matches. Use list(entity: snippet, parent: <revision locator>) to map \
+                 third-party code matches to first-party files, then snippet_match to drill into \
+                 a single match's first-party line numbers and side-by-side code."
                     .to_string(),
             ),
         }
@@ -295,7 +343,9 @@ impl ServerHandler for FossaServer {
                  Projects: no parent needed. \
                  Revisions: parent = project locator. \
                  Issues: category required (vulnerability, licensing, quality). \
-                 Dependencies: parent = revision locator.",
+                 Dependencies: parent = revision locator. \
+                 Snippets: parent = revision locator; optional path filter and with_lines \
+                 (resolves first-party line ranges). Returns one row per matched first-party file.",
                 Self::schema::<ListParams>(),
             ),
             Tool::new(
@@ -303,6 +353,13 @@ impl ServerHandler for FossaServer {
                 "Update a FOSSA entity. Currently only Project is supported. \
                  Can update: title, description, url, public.",
                 Self::schema::<UpdateParams>(),
+            ),
+            Tool::new(
+                "snippet_match",
+                "Drill into a single snippet match. Given a revision locator, snippet ID, and \
+                 first-party file path (from list entity: snippet), returns the matched first-party \
+                 code (detected_code, with line numbers) alongside the open-source reference_code.",
+                Self::schema::<SnippetMatchParams>(),
             ),
         ];
 
@@ -338,6 +395,11 @@ impl ServerHandler for FossaServer {
                     .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
                 self.handle_update(params).await
             }
+            "snippet_match" => {
+                let params: SnippetMatchParams = serde_json::from_value(args)
+                    .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+                self.handle_snippet_match(params).await
+            }
             other => Err(McpError::invalid_params(
                 format!("Unknown tool: {other}"),
                 None,
@@ -349,7 +411,7 @@ impl ServerHandler for FossaServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{method, path, query_param};
+    use wiremock::matchers::{method, path, path_regex, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
@@ -431,6 +493,8 @@ mod tests {
             page: None,
             count: None,
             category: None,
+            path: None,
+            with_lines: None,
         };
 
         let result = server.handle_list(params).await.unwrap();
@@ -485,6 +549,8 @@ mod tests {
             page: None,
             count: None,
             category: None,
+            path: None,
+            with_lines: None,
         };
 
         let result = server.handle_list(params).await.unwrap();
@@ -523,6 +589,8 @@ mod tests {
             page: None,
             count: None,
             category: None,
+            path: None,
+            with_lines: None,
         };
 
         let result = server.handle_list(params).await.unwrap();
@@ -543,6 +611,8 @@ mod tests {
             page: None,
             count: None,
             category: None,
+            path: None,
+            with_lines: None,
         };
 
         let result = server.handle_list(params).await;
@@ -566,6 +636,8 @@ mod tests {
             page: None,
             count: None,
             category: None,
+            path: None,
+            with_lines: None,
         };
 
         let result = server.handle_list(params).await;
@@ -602,6 +674,8 @@ mod tests {
             page: None,   // Should default to 1
             count: None,  // Should default to 20
             category: None,
+            path: None,
+            with_lines: None,
         };
 
         let _ = server.handle_list(params).await;
@@ -635,6 +709,8 @@ mod tests {
             page: Some(1),
             count: Some(200),  // Should be capped to 100
             category: None,
+            path: None,
+            with_lines: None,
         };
 
         let _ = server.handle_list(params).await;
@@ -1048,6 +1124,8 @@ mod tests {
             page: None,
             count: None,
             category: Some(IssueCategory::Vulnerability),
+            path: None,
+            with_lines: None,
         };
 
         let result = server.handle_list(params).await.unwrap();
@@ -1067,11 +1145,145 @@ mod tests {
             page: None,
             count: None,
             category: None, // Missing required category
+            path: None,
+            with_lines: None,
         };
 
         let result = server.handle_list(params).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.to_lowercase().contains("category"));
+    }
+
+    // =========================================================================
+    // Snippet MCP handler tests
+    // =========================================================================
+
+    /// Test: list(entity: snippet, parent: revision) returns flattened locations.
+    #[tokio::test]
+    async fn handle_list_snippets_returns_locations() {
+        let mock_server = MockServer::start().await;
+
+        let list_body = serde_json::json!({
+            "results": [{
+                "id": "55", "packageId": "7", "purl": "pkg:x",
+                "locator": "pod+x$1", "package": "X", "version": "1.0",
+                "kind": "file", "matchCount": 1
+            }],
+            "totalCount": 1, "page": 1, "pageSize": 50
+        });
+        let details_body = serde_json::json!({
+            "snippet": {
+                "id": "55", "packageId": "7", "purl": "pkg:x",
+                "locator": "pod+x$1", "package": "X", "version": "1.0",
+                "kind": "file",
+                "matches": [{"path": "/src/a.rs", "matchPercentage": 1}]
+            }
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/revisions/custom%2Borg%2Frepo%24main/snippets"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&list_body))
+            .mount(&mock_server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/revisions/custom%2Borg%2Frepo%24main/snippets/55"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&details_body))
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = ListParams {
+            entity: EntityType::Snippet,
+            parent: Some("custom+org/repo$main".to_string()),
+            page: None,
+            count: None,
+            category: None,
+            path: None,
+            with_lines: None,
+        };
+
+        let result = server.handle_list(params).await.unwrap();
+        assert!(!result.is_error.unwrap_or(false));
+        let text = result.content[0].raw.as_text().unwrap().text.as_str();
+        assert!(text.contains("/src/a.rs"));
+        assert!(text.contains("\"snippet_id\": \"55\""));
+    }
+
+    /// Test: list(entity: snippet) without parent returns error.
+    #[tokio::test]
+    async fn handle_list_snippets_without_parent_returns_error() {
+        let mock_server = MockServer::start().await;
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = ListParams {
+            entity: EntityType::Snippet,
+            parent: None,
+            page: None,
+            count: None,
+            category: None,
+            path: None,
+            with_lines: None,
+        };
+
+        let err = server.handle_list(params).await.unwrap_err();
+        assert!(err.message.to_lowercase().contains("parent"));
+    }
+
+    /// Test: snippet_match drills into a single match and returns the code.
+    #[tokio::test]
+    async fn handle_snippet_match_returns_code() {
+        let mock_server = MockServer::start().await;
+
+        let match_body = serde_json::json!({
+            "matchDetails": {
+                "path": "/src/a.rs",
+                "matchPercentage": 100,
+                "referenceCode": [{"line": "x", "lineNumber": 1, "isHighlighted": true}],
+                "detectedCode": [{"line": "x", "lineNumber": 42, "isHighlighted": true}]
+            }
+        });
+
+        Mock::given(method("GET"))
+            .and(path_regex(r"/snippets/55/matches/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&match_body))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = SnippetMatchParams {
+            revision: "custom+org/repo$main".to_string(),
+            snippet: "55".to_string(),
+            path: "/src/a.rs".to_string(),
+        };
+
+        let result = server.handle_snippet_match(params).await.unwrap();
+        assert!(!result.is_error.unwrap_or(false));
+        let text = result.content[0].raw.as_text().unwrap().text.as_str();
+        assert!(text.contains("detectedCode") || text.contains("detected_code"));
+        assert!(text.contains("42"));
+    }
+
+    /// Test: snippet does not support get.
+    #[tokio::test]
+    async fn handle_get_snippet_returns_error() {
+        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
+        let server = FossaServer::new(client);
+
+        let params = GetParams {
+            entity: EntityType::Snippet,
+            id: "55".to_string(),
+            category: None,
+        };
+
+        let err = server.handle_get(params).await.unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(msg.contains("does not support get") || msg.contains("snippet_match"));
     }
 }

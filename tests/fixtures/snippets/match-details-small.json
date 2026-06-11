@@ -1,0 +1,70 @@
+{
+  "matchDetails": {
+    "path": "/Sources/Networking/Session.swift",
+    "matchPercentage": 100,
+    "referenceCode": [
+      {
+        "line": "//",
+        "lineNumber": 1,
+        "isHighlighted": true
+      },
+      {
+        "line": "//  Session.swift",
+        "lineNumber": 2,
+        "isHighlighted": true
+      },
+      {
+        "line": "//",
+        "lineNumber": 3,
+        "isHighlighted": true
+      },
+      {
+        "line": "//  Copyright (c) 2014-2018 Alamofire Software Foundation (http://alamofire.org/)",
+        "lineNumber": 4,
+        "isHighlighted": true
+      },
+      {
+        "line": "//",
+        "lineNumber": 5,
+        "isHighlighted": true
+      },
+      {
+        "line": "//  Permission is hereby granted, free of charge, to any person obtaining a copy",
+        "lineNumber": 6,
+        "isHighlighted": true
+      }
+    ],
+    "detectedCode": [
+      {
+        "line": "//",
+        "lineNumber": 1,
+        "isHighlighted": true
+      },
+      {
+        "line": "//  Session.swift",
+        "lineNumber": 2,
+        "isHighlighted": true
+      },
+      {
+        "line": "//",
+        "lineNumber": 3,
+        "isHighlighted": true
+      },
+      {
+        "line": "//  Copyright (c) 2014-2018 Alamofire Software Foundation (http://alamofire.org/)",
+        "lineNumber": 4,
+        "isHighlighted": true
+      },
+      {
+        "line": "//",
+        "lineNumber": 5,
+        "isHighlighted": true
+      },
+      {
+        "line": "//  Permission is hereby granted, free of charge, to any person obtaining a copy",
+        "lineNumber": 6,
+        "isHighlighted": true
+      }
+    ]
+  }
+}
