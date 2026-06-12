@@ -1,6 +1,6 @@
 [package]
 name = "fossapi"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "Rust client library for the FOSSA REST API"
 license = "MIT"
@@ -12,8 +12,9 @@ categories = ["api-bindings", "development-tools"]
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
-# HTTP client
-reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "deflate"] }
+# HTTP client. rustls (not native OpenSSL) so the x86_64-unknown-linux-musl
+# release build doesn't fail trying to link openssl-sys when cross-compiling.
+reqwest = { version = "0.12", default-features = false, features = ["json", "gzip", "brotli", "deflate", "charset", "http2", "rustls-tls"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
