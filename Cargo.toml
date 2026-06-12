@@ -1,6 +1,6 @@
 [package]
 name = "fossapi"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Rust client library for the FOSSA REST API"
 license = "MIT"
@@ -88,10 +88,13 @@ install-path = "CARGO_HOME"
 # Pin CI runners to images GitHub still hosts. dist 0.27 defaults to
 # ubuntu-20.04 / windows-2019, both retired, so jobs requesting them queue
 # until the 24h timeout and the PR check sits "pending" forever.
+# Both apple-darwin targets build on Apple Silicon (macos-14): GitHub no longer
+# allocates Intel macOS runners (macos-13 deprecated), so the x86_64 binary is
+# cross-compiled on the arm runner.
 [workspace.metadata.dist.github-custom-runners]
 global = "ubuntu-22.04"
 aarch64-apple-darwin = "macos-14"
-x86_64-apple-darwin = "macos-13"
+x86_64-apple-darwin = "macos-14"
 x86_64-unknown-linux-gnu = "ubuntu-22.04"
 x86_64-unknown-linux-musl = "ubuntu-22.04"
 x86_64-pc-windows-msvc = "windows-2022"
