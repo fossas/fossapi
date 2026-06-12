@@ -38,7 +38,9 @@ erDiagram
     Project ||--o{ Revision : "has many"
     Project ||--o{ Issue : "has many"
     Revision ||--o{ Dependency : "contains"
+    Revision ||--o{ Snippet : "matched in"
     Dependency ||--o{ Issue : "flagged by"
+    Snippet ||--o{ SnippetMatch : "matched at"
 
     Project {
         String id "locator: custom+org/project"
@@ -73,6 +75,22 @@ erDiagram
         String cve "CVE identifier (vulns only)"
         DateTime created_at
     }
+
+    Snippet {
+        String id PK "numeric string, e.g. 1295019"
+        String locator "matched OSS package: pod+Alamofire$5.11.0"
+        String purl "pkg:cocoapods/Alamofire@5.11.0"
+        SnippetKind kind "whole-file or partial match"
+        f64 highest_match_percentage "0.0-1.0"
+        u32 match_count "first-party files matched"
+    }
+
+    SnippetMatch {
+        String path "first-party file path"
+        f64 match_percentage "0-100 in matchDetails, 0-1 elsewhere"
+        Vec_Line detected_code "first-party lines + numbers"
+        Vec_Line reference_code "open-source lines + numbers"
+    }
 ```
 
 ## Architecture
@@ -82,7 +100,11 @@ Project (top-level container)
 ├── latest_revision: LatestRevision
 │   └── locator → can fetch full Revision
 ├── revisions() → Vec<Revision>
-│   └── revision.dependencies() → Vec<Dependency>
+│   ├── revision.dependencies() → Vec<Dependency>
+│   └── get_snippets(revision) → Vec<Snippet>        (snippet-scan OSS matches)
+│       ├── get_snippet_details(snippet) → matched first-party files
+│       ├── get_snippet_match(snippet, path) → side-by-side detected vs reference code
+│       └── get_snippet_locations(revision) → flat (snippet, file) report (+ line ranges)
 └── get_project_issues() → Vec<Issue>
     └── Issues across all revisions/dependencies
 ```
@@ -97,6 +119,10 @@ Project (top-level container)
 | Dependencies | `GET /v2/revisions/{locator}/dependencies` | For a revision |
 | Issues | `GET /v2/issues` | Paginated, filterable by category/project |
 | Issue | `GET /v2/issues/{id}` | Single issue with full details |
+| Snippets | `GET /revisions/{locator}/snippets` | Paginated; `pageSize` capped at 50 (`list_all` overrides) |
+| Snippet paths | `GET /revisions/{locator}/snippets/paths` | File/dir tree, drill in via `path` |
+| Snippet details | `GET /revisions/{locator}/snippets/{id}` | Single snippet + its per-file matches |
+| Snippet match | `GET /revisions/{locator}/snippets/{id}/matches/{path}` | Side-by-side detected vs reference code |
 
 ## Traits
 
@@ -112,6 +138,7 @@ Project (top-level container)
 - **Revision** - Snapshot at point in time, implements Get/List
 - **Dependency** - Package dependency, implements List only (via revision)
 - **Issue** - Vulnerability/licensing/quality issue, implements Get/List
+- **Snippet** - Third-party (OSS) code matched into first-party files, implements List only (via revision). Read-only; reached through the `get_snippet_*` convenience functions. Quirks: `id` is a string, `matchDetails.matchPercentage` is 0-100 (other percentages are 0-1), and whole-file matches highlight a trailing blank EOF line that is excluded from the reported range.
 - **LicenseInfo** - Can be simple string ("MIT") or full object
 
 ## Issue Categories
@@ -127,6 +154,8 @@ Issues come in three categories with different fields:
 ## Future Work
 
 - **IssueScan** - Issue scans tied to revisions (not yet implemented)
+- **Snippet reject/unreject** - Mutating a snippet's rejection status (out of scope for v1)
+- **Cross-revision snippet compare** - Diffing snippet matches across revisions (out of scope for v1)
 
 ## Nudge
 
