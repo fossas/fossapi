@@ -17,6 +17,8 @@ pub enum EntityType {
     Issue,
     /// Package dependency.
     Dependency,
+    /// Snippet match (third-party code matched against first-party code).
+    Snippet,
 }
 
 /// Parameters for the `get` MCP tool.
@@ -48,6 +50,12 @@ pub struct ListParams {
     /// Issue category filter (required for Issue entity: vulnerability, licensing, quality).
     #[serde(default)]
     pub category: Option<IssueCategory>,
+    /// File/directory path filter (Snippet entity; defaults to the repository root).
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Resolve the first-party line range for each match (Snippet entity; extra API calls).
+    #[serde(default)]
+    pub with_lines: Option<bool>,
 }
 
 /// Parameters for the `update` MCP tool.
@@ -69,6 +77,17 @@ pub struct UpdateParams {
     /// Whether the project is public (Project only).
     #[serde(default)]
     pub public: Option<bool>,
+}
+
+/// Parameters for the `snippet_match` MCP tool (the snippet drill-in).
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct SnippetMatchParams {
+    /// The revision locator.
+    pub revision: String,
+    /// The snippet ID.
+    pub snippet: String,
+    /// The first-party file path where the snippet matched.
+    pub path: String,
 }
 
 #[cfg(test)]
@@ -176,5 +195,30 @@ mod tests {
         let schema = schemars::schema_for!(ListParams);
         let json = serde_json::to_string(&schema).unwrap();
         assert!(json.contains("category"));
+    }
+
+    #[test]
+    fn entity_type_includes_snippet() {
+        let schema = schemars::schema_for!(EntityType);
+        let json = serde_json::to_string(&schema).unwrap();
+        assert!(json.contains("snippet"));
+    }
+
+    #[test]
+    fn list_params_deserializes_snippet_fields() {
+        let json = r#"{"entity": "snippet", "parent": "custom+org/repo$main", "path": "/src", "with_lines": true}"#;
+        let params: ListParams = serde_json::from_str(json).unwrap();
+        assert!(matches!(params.entity, EntityType::Snippet));
+        assert_eq!(params.path.as_deref(), Some("/src"));
+        assert_eq!(params.with_lines, Some(true));
+    }
+
+    #[test]
+    fn snippet_match_params_deserializes() {
+        let json = r#"{"revision": "custom+org/repo$main", "snippet": "1295019", "path": "/src/a.rs"}"#;
+        let params: SnippetMatchParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.revision, "custom+org/repo$main");
+        assert_eq!(params.snippet, "1295019");
+        assert_eq!(params.path, "/src/a.rs");
     }
 }

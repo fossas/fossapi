@@ -10,13 +10,13 @@ rules:
         file: "**/*.rs"
         content:
           - kind: Regex
-            pattern: "(?m)^[ \\t]*//"
+            pattern: "(?m)^[ \\t]*//([^/!]|$)"
       - hook: PreToolUse
         tool: Edit
         file: "**/*.rs"
         new_content:
           - kind: Regex
-            pattern: "(?m)^[ \\t]*//"
+            pattern: "(?m)^[ \\t]*//([^/!]|$)"
 
   - name: no-inline-imports
     description: Move imports to the top of the file
@@ -175,26 +175,10 @@ rules:
             pattern: '(?m)^\s*//\s*TODO:\s*(?P<todo>.+)$'
             suggestion: "// TODO(ISS-XX): {{ $todo }}"
 
-  - name: missing-error-context
-    description: Add context to error propagation for better debugging
-    message: |
-      Error propagated without context. Use .context("what failed")?
-      This preserves error chain. Fix and retry.
-    on:
-      - hook: PreToolUse
-        tool: Write
-        file: "**/*.rs"
-        content:
-          - kind: Regex
-            pattern: '[^)]\?\s*;'
-            suggestion: '.context("describe what failed")?;'
-      - hook: PreToolUse
-        tool: Edit
-        file: "**/*.rs"
-        new_content:
-          - kind: Regex
-            pattern: '[^)]\?\s*;'
-            suggestion: '.context("describe what failed")?;'
+  # Disabled: this crate uses a custom thiserror `FossaError`/`Result` with `From`
+  # conversions and no `.context()` method (anyhow/eyre idiom). Plain `?` propagation
+  # is the established convention throughout the codebase.
+  # - name: missing-error-context
 
   - name: prefer-newtypes-for-ids
     description: Use newtypes for identifiers instead of bare String

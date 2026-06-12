@@ -81,6 +81,25 @@ pub enum GetCommand {
         /// The issue ID.
         id: u64,
     },
+    #[command(
+        about = "Get a snippet's details, including its matched first-party files",
+        alias = "snippets"
+    )]
+    Snippet {
+        #[arg(help = "The revision locator (e.g. custom+org/repo$ref)")]
+        revision: String,
+        #[arg(help = "The snippet ID")]
+        snippet: String,
+    },
+    #[command(about = "Show the side-by-side match details for a snippet at a first-party path")]
+    SnippetMatch {
+        #[arg(help = "The revision locator (e.g. custom+org/repo$ref)")]
+        revision: String,
+        #[arg(help = "The snippet ID")]
+        snippet: String,
+        #[arg(help = "The first-party file path where the snippet matched")]
+        path: String,
+    },
 }
 
 /// Subcommands for the `list` command with type-safe argument parsing.
@@ -132,6 +151,39 @@ pub enum ListCommand {
         /// Number of items per page.
         #[arg(long)]
         count: Option<u32>,
+    },
+    #[command(
+        about = "List snippets (matched OSS packages) in a revision",
+        alias = "snippet"
+    )]
+    Snippets {
+        #[arg(help = "The revision locator (e.g. custom+org/repo$ref)")]
+        revision: String,
+        #[arg(long, help = "Filter by file/directory path (defaults to /)")]
+        path: Option<String>,
+        #[arg(long)]
+        page: Option<u32>,
+        #[arg(long)]
+        count: Option<u32>,
+    },
+    #[command(about = "List every snippet match location (first-party file -> matched package)")]
+    SnippetLocations {
+        #[arg(help = "The revision locator (e.g. custom+org/repo$ref)")]
+        revision: String,
+        #[arg(long, help = "Filter by file/directory path (defaults to /)")]
+        path: Option<String>,
+        #[arg(
+            long,
+            help = "Resolve the first-party line range for each match (extra API calls)"
+        )]
+        with_lines: bool,
+    },
+    #[command(about = "List the file/directory tree where snippets were detected")]
+    SnippetPaths {
+        #[arg(help = "The revision locator (e.g. custom+org/repo$ref)")]
+        revision: String,
+        #[arg(long, help = "File/directory path to drill into (defaults to /)")]
+        path: Option<String>,
     },
 }
 

@@ -3,7 +3,9 @@
 //! Provides the [`PrettyPrint`] trait for human-readable output
 //! as an alternative to JSON serialization.
 
-use crate::{Issue, Project, Revision};
+use std::collections::BTreeSet;
+
+use crate::{CodeLine, Issue, Project, Revision, Snippet, SnippetKind, SnippetMatchDetails};
 
 /// Trait for human-readable key-value output.
 ///
@@ -122,6 +124,125 @@ impl PrettyPrint for Issue {
 
         lines.join("\n")
     }
+}
+
+fn snippet_kind_label(kind: SnippetKind) -> &'static str {
+    match kind {
+        SnippetKind::File => "file (whole-file match)",
+        SnippetKind::Snippet => "snippet (partial match)",
+        SnippetKind::Unknown => "unknown",
+    }
+}
+
+impl PrettyPrint for Snippet {
+    fn pretty_print(&self) -> String {
+        let header = format!("Snippet #{}", self.id);
+        let divider = "─".repeat(header.len().max(30));
+
+        let mut lines = vec![
+            header,
+            divider,
+            format!("Package:        {} {}", self.package, self.version),
+            format!("PURL:           {}", self.purl),
+            format!("Kind:           {}", snippet_kind_label(self.kind)),
+            format!(
+                "Match:          {:.0}% (top), {} file(s)",
+                self.highest_match_percentage * 100.0,
+                self.match_count
+            ),
+        ];
+
+        let license_ids = self.license_ids();
+        if !license_ids.is_empty() {
+            lines.push(format!("Licenses:       {}", license_ids.join(", ")));
+        }
+
+        if self.is_rejected() {
+            let by = self
+                .rejection_details
+                .as_ref()
+                .and_then(|r| r.rejected_by.as_deref())
+                .unwrap_or("unknown");
+            lines.push(format!("Rejected:       yes (by {by})"));
+        }
+
+        if !self.matches.is_empty() {
+            lines.push(String::new());
+            lines.push("Matched files:".to_string());
+            for m in &self.matches {
+                lines.push(format!("  {:.0}%  {}", m.match_percentage * 100.0, m.path));
+            }
+        }
+
+        lines.join("\n")
+    }
+}
+
+impl PrettyPrint for SnippetMatchDetails {
+    fn pretty_print(&self) -> String {
+        let header = format!("Snippet match: {}", self.path);
+        let divider = "─".repeat(header.len().max(30));
+
+        let mut lines = vec![header, divider];
+        lines.push(format!("Match:          {:.0}%", self.match_percentage));
+        if let Some((lo, hi)) = self.detected_line_range() {
+            lines.push(format!("Your code:      lines {lo}-{hi}"));
+        }
+        if let Some((lo, hi)) = self.reference_line_range() {
+            lines.push(format!("Reference:      lines {lo}-{hi}"));
+        }
+
+        lines.push(String::new());
+        lines.push("── Detected (your code) ──".to_string());
+        lines.extend(render_code_block(&self.detected_code));
+        lines.push(String::new());
+        lines.push("── Reference (open source) ──".to_string());
+        lines.extend(render_code_block(&self.reference_code));
+
+        lines.join("\n")
+    }
+}
+
+fn visible_indices(code: &[CodeLine], context: usize) -> BTreeSet<usize> {
+    let highlighted = code
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.is_highlighted)
+        .map(|(i, _)| i)
+        .collect::<Vec<_>>();
+
+    if highlighted.is_empty() {
+        return (0..code.len()).collect();
+    }
+
+    let mut shown = BTreeSet::new();
+    for i in highlighted {
+        let lo = i.saturating_sub(context);
+        let hi = (i + context).min(code.len() - 1);
+        shown.extend(lo..=hi);
+    }
+    shown
+}
+
+fn render_code_block(code: &[CodeLine]) -> Vec<String> {
+    const CONTEXT: usize = 3;
+
+    if code.is_empty() {
+        return vec!["  (no code)".to_string()];
+    }
+
+    let mut out = Vec::new();
+    let mut prev = None;
+    for i in visible_indices(code, CONTEXT) {
+        if prev.is_some_and(|p| i > p + 1) {
+            out.push("        ⋮".to_string());
+        }
+        let l = &code[i];
+        let gutter = if l.is_highlighted { '>' } else { ' ' };
+        out.push(format!("{gutter} {:>5} │ {}", l.line_number, l.line));
+        prev = Some(i);
+    }
+    out
 }
 
 #[cfg(test)]
