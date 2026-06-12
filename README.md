@@ -77,6 +77,36 @@ fossapi list issues --category licensing
 fossapi get issue 12345
 ```
 
+### Snippets
+
+Snippet scanning finds third-party (open-source) code copied into your
+first-party files. Each **snippet** is a matched OSS package; its **matches**
+are the first-party files where that code was found. The snippet surface is
+read-only and scoped to a single revision.
+
+```bash
+# List snippets (matched OSS packages) in a revision
+fossapi list snippets "custom+1/my-project\$abc123"
+
+# Restrict to a file/directory subtree (defaults to the repo root)
+fossapi list snippets "custom+1/my-project\$abc123" --path /src
+
+# Show the file/directory tree where snippets were detected
+fossapi list snippet-paths "custom+1/my-project\$abc123"
+
+# Flat report: every match location (first-party file -> matched package)
+fossapi list snippet-locations "custom+1/my-project\$abc123"
+
+# ...and resolve the first-party line range for each match (extra API calls)
+fossapi list snippet-locations "custom+1/my-project\$abc123" --with-lines
+
+# Get a snippet's details, including its matched first-party files
+fossapi get snippet "custom+1/my-project\$abc123" <snippet-id>
+
+# Side-by-side match details (detected vs reference code) at a matched path
+fossapi get snippet-match "custom+1/my-project\$abc123" <snippet-id> src/foo.rs
+```
+
 ### Output Formats
 
 ```bash
@@ -121,8 +151,14 @@ Add to your MCP config:
 | Tool | Description |
 |------|-------------|
 | `get` | Fetch a single project, revision, or issue by ID |
-| `list` | List projects, revisions, dependencies, or issues |
+| `list` | List projects, revisions, dependencies, issues, or snippet match locations |
 | `update` | Update project metadata (title, description, url, public) |
+| `snippet_match` | Drill into one snippet match: the matched first-party and reference code |
+
+> **Snippets over MCP:** use `list` with `entity: snippet` and `parent: <revision
+> locator>` (optional `path` and `with_lines`) to map third-party matches to
+> first-party files, then `snippet_match` to drill into a single match. Snippets
+> don't support `get` or `update`.
 
 ## Locators
 
@@ -131,3 +167,4 @@ FOSSA uses locators to identify entities:
 - **Project**: `custom+{org_id}/{project_name}`
 - **Revision**: `custom+{org_id}/{project_name}${revision_ref}`
 - **Dependency**: `{fetcher}+{package}${version}` (e.g., `npm+lodash$4.17.21`)
+- **Snippet**: identified by its parent revision locator plus a snippet ID (a string)
