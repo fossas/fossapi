@@ -7,8 +7,17 @@
 
 use fossapi::mock_server::{Fixtures, MockServer, MockState};
 use fossapi::{
-    get_dependencies, FossaClient, Get, Issue, List, Project, Revision, Update,
+    get_dependencies, FossaClient, Get, Issue, IssueCategory, IssueListQuery, List, Project,
+    Revision, Update,
 };
+
+/// A list query scoped to one category, which the API requires.
+fn issues_in(category: IssueCategory) -> IssueListQuery {
+    IssueListQuery {
+        category: Some(category),
+        ..Default::default()
+    }
+}
 
 // =============================================================================
 // Server Lifecycle Tests
@@ -190,7 +199,7 @@ async fn test_list_and_get_issues() {
     let client = FossaClient::new("test-token", server.url()).unwrap();
 
     // Step 1: List all issues
-    let page = Issue::list_page(&client, &Default::default(), 1, 20)
+    let page = Issue::list_page(&client, &issues_in(IssueCategory::Vulnerability), 1, 20)
         .await
         .expect("Failed to list issues");
 
@@ -213,24 +222,22 @@ async fn test_issues_have_correct_types() {
     let server = MockServer::start().await;
     let client = FossaClient::new("test-token", server.url()).unwrap();
 
-    let page = Issue::list_page(&client, &Default::default(), 1, 100)
+    let vulns = Issue::list_page(&client, &issues_in(IssueCategory::Vulnerability), 1, 100)
         .await
-        .expect("Failed to list issues");
+        .expect("Failed to list vulnerability issues");
+    let licenses = Issue::list_page(&client, &issues_in(IssueCategory::Licensing), 1, 100)
+        .await
+        .expect("Failed to list licensing issues");
 
-    // Default fixture should have both vulnerability and licensing issues
-    let vuln_issues: Vec<_> = page.items.iter().filter(|i| i.is_vulnerability()).collect();
-    let license_issues: Vec<_> = page.items.iter().filter(|i| i.is_licensing()).collect();
+    assert!(!vulns.items.is_empty(), "Expected vulnerability issues");
+    assert!(!licenses.items.is_empty(), "Expected licensing issues");
 
-    assert!(!vuln_issues.is_empty(), "Expected vulnerability issues");
-    assert!(!license_issues.is_empty(), "Expected licensing issues");
-
-    // Vulnerability issues should have CVE
-    for issue in vuln_issues {
+    for issue in &vulns.items {
+        assert!(issue.is_vulnerability(), "Expected a vulnerability issue");
         assert!(issue.cve.is_some(), "Vulnerability should have CVE");
     }
 
-    // Licensing issues should have license
-    for issue in license_issues {
+    for issue in &licenses.items {
         assert!(issue.license.is_some(), "Licensing issue should have license");
     }
 
@@ -281,7 +288,7 @@ async fn test_full_project_analysis_workflow() {
     }
 
     // Step 5: Check for issues
-    let issues = Issue::list_page(&client, &Default::default(), 1, 100)
+    let issues = Issue::list_page(&client, &issues_in(IssueCategory::Vulnerability), 1, 100)
         .await
         .expect("Failed to list issues");
     // Issues exist in our test data
@@ -342,7 +349,7 @@ async fn test_empty_server_returns_empty_lists() {
     assert!(projects.items.is_empty());
     assert_eq!(projects.total, Some(0));
 
-    let issues = Issue::list_page(&client, &Default::default(), 1, 100)
+    let issues = Issue::list_page(&client, &issues_in(IssueCategory::Vulnerability), 1, 100)
         .await
         .expect("Failed to list issues");
 

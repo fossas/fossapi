@@ -4,6 +4,8 @@
 
 use clap::{Parser, Subcommand, ValueEnum};
 
+use crate::IssueCategory;
+
 /// FOSSA API command-line interface.
 #[derive(Parser, Debug)]
 #[command(name = "fossapi", about = "FOSSA API CLI", version)]
@@ -80,6 +82,10 @@ pub enum GetCommand {
     Issue {
         /// The issue ID.
         id: u64,
+
+        /// Issue category. Omit to search every category (up to 3 requests).
+        #[arg(long, value_enum)]
+        category: Option<IssueCategory>,
     },
     #[command(
         about = "Get a snippet's details, including its matched first-party files",
@@ -126,6 +132,10 @@ pub enum ListCommand {
         /// Number of items per page.
         #[arg(long)]
         count: Option<u32>,
+
+        /// Issue category to list.
+        #[arg(long, value_enum)]
+        category: IssueCategory,
     },
     /// List dependencies for a revision.
     #[command(alias = "dependency")]

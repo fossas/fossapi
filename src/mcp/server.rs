@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use crate::{
     mcp::{EntityType, GetParams, ListParams, SnippetMatchParams, UpdateParams},
-    DependencyListQuery, FossaClient, FossaError, Get, Issue, IssueCategory, IssueListQuery, List,
+    DependencyListQuery, FossaClient, FossaError, Get, Issue, IssueListQuery, List,
     Project, ProjectListQuery, ProjectUpdateParams, Revision, RevisionListQuery, SnippetListQuery,
     Update,
 };
@@ -411,6 +411,7 @@ impl ServerHandler for FossaServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::IssueCategory;
     use wiremock::matchers::{method, path, path_regex, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 

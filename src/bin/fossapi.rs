@@ -5,7 +5,7 @@
 use clap::Parser;
 use fossapi::cli::{Cli, Command, Entity, GetCommand, ListCommand};
 use fossapi::{
-    get_dependencies, FossaClient, Get, Issue, List, Page, PrettyPrint, Project,
+    get_dependencies, FossaClient, Get, Issue, IssueListQuery, List, Page, PrettyPrint, Project,
     ProjectUpdateParams, Revision, Snippet, SnippetListQuery, SnippetLocation, SnippetPath, Update,
 };
 use serde::Serialize;
@@ -63,8 +63,11 @@ async fn handle_get(
             let revision = Revision::get(client, locator).await?;
             output_single(&revision, json)?;
         }
-        GetCommand::Issue { id } => {
-            let issue = Issue::get(client, id).await?;
+        GetCommand::Issue { id, category } => {
+            let issue = match category {
+                Some(category) => Issue::get_with_category(client, id, category).await?,
+                None => Issue::get(client, id).await?,
+            };
             output_single(&issue, json)?;
         }
         GetCommand::Snippet { revision, snippet } => {
@@ -95,10 +98,18 @@ async fn handle_list(
             let projects = Project::list_page(client, &Default::default(), page, count).await?;
             output_page(&projects, json, |p| ProjectRow::from(p))?;
         }
-        ListCommand::Issues { page, count } => {
+        ListCommand::Issues {
+            page,
+            count,
+            category,
+        } => {
             let page = page.unwrap_or(1);
             let count = count.unwrap_or(20);
-            let issues = Issue::list_page(client, &Default::default(), page, count).await?;
+            let query = IssueListQuery {
+                category: Some(category),
+                ..Default::default()
+            };
+            let issues = Issue::list_page(client, &query, page, count).await?;
             output_page(&issues, json, |i| IssueRow::from(i))?;
         }
         ListCommand::Dependencies { revision, revision_positional } => {

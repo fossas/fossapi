@@ -65,6 +65,8 @@ fossapi list dependencies "custom+1/my-project\$abc123"
 ### Issues
 
 Issues come in three categories: `vulnerability`, `licensing`, and `quality`.
+The API scopes every issue lookup to one category, so `--category` is required
+when listing.
 
 ```bash
 # List vulnerabilities
@@ -73,8 +75,11 @@ fossapi list issues --category vulnerability
 # List licensing issues
 fossapi list issues --category licensing
 
-# Get a specific issue
+# Get a specific issue; searches each category in turn
 fossapi get issue 12345
+
+# Skip the search when you know the category
+fossapi get issue 12345 --category licensing
 ```
 
 ### Snippets
