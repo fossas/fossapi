@@ -120,6 +120,15 @@ impl MockState {
             .collect()
     }
 
+    /// Get an issue by ID, but only if it belongs to `category`.
+    ///
+    /// The real API answers 404 when the ID exists under a different category,
+    /// which is what drives the category search in `Issue::get`.
+    pub fn get_issue_in_category(&self, id: u64, category: &str) -> Option<&Issue> {
+        self.get_issue(id)
+            .filter(|i| i.issue_type.eq_ignore_ascii_case(category))
+    }
+
     /// List all issues, optionally filtered by category.
     pub fn list_issues(&self, category: Option<&str>) -> Vec<&Issue> {
         self.issues

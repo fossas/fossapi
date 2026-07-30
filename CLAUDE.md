@@ -117,7 +117,7 @@ Project (top-level container)
 | Project | `GET /projects/{locator}` | Single project |
 | Revisions | `GET /projects/{locator}/revisions` | Grouped by branch |
 | Dependencies | `GET /v2/revisions/{locator}/dependencies` | For a revision |
-| Issues | `GET /v2/issues` | Paginated, filterable by category/project |
+| Issues | `GET /v2/issues` | `category` **required**; `count` clamps to a minimum of 5 |
 | Issue | `GET /v2/issues/{id}` | Single issue with full details |
 | Snippets | `GET /revisions/{locator}/snippets` | Paginated; `pageSize` capped at 50 (`list_all` overrides) |
 | Snippet paths | `GET /revisions/{locator}/snippets/paths` | File/dir tree, drill in via `path` |

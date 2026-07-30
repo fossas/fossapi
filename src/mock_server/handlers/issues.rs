@@ -45,20 +45,11 @@ pub async fn get_issue(
     Path(id): Path<String>,
     Query(query): Query<GetIssueQuery>,
 ) -> impl IntoResponse {
-    // Validate category is provided (required by FOSSA API)
-    if query.category.is_none() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "Validation error",
-                "message": "Invalid option: expected one of \"licensing\"|\"vulnerability\"|\"quality\" at \"category\""
-            })),
-        )
-            .into_response();
-    }
+    let Some(category) = query.category.as_deref() else {
+        return missing_category();
+    };
 
-    // Parse the ID as u64
-    let id: u64 = match id.parse() {
+    let id = match id.parse::<u64>() {
         Ok(id) => id,
         Err(_) => {
             return (
@@ -74,17 +65,29 @@ pub async fn get_issue(
 
     let state = state.read().await;
 
-    match state.get_issue(id) {
+    match state.get_issue_in_category(id, category) {
         Some(issue) => (StatusCode::OK, Json(issue.clone())).into_response(),
         None => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({
                 "error": "Issue not found",
-                "message": format!("No issue found with ID: {}", id)
+                "message": format!("No {} issue found with ID: {}", category, id)
             })),
         )
             .into_response(),
     }
+}
+
+/// The 400 the FOSSA API returns when the required `category` param is absent.
+fn missing_category() -> axum::response::Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({
+            "error": "Validation error",
+            "message": "Invalid option: expected one of \"licensing\"|\"vulnerability\"|\"quality\" at \"category\""
+        })),
+    )
+        .into_response()
 }
 
 /// GET /v2/issues
@@ -92,12 +95,16 @@ pub async fn list_issues(
     State(state): State<Arc<RwLock<MockState>>>,
     Query(query): Query<ListIssuesQuery>,
 ) -> impl IntoResponse {
+    let Some(category) = query.category.as_deref() else {
+        return missing_category();
+    };
+
     let state = state.read().await;
 
     let page = query.page.unwrap_or(1);
     let count = query.count.unwrap_or(20);
 
-    let all_issues = state.list_issues(query.category.as_deref());
+    let all_issues = state.list_issues(Some(category));
 
     // Apply pagination
     let start = ((page - 1) * count) as usize;
@@ -109,5 +116,5 @@ pub async fn list_issues(
         vec![]
     };
 
-    (StatusCode::OK, Json(ListIssuesResponse { issues }))
+    (StatusCode::OK, Json(ListIssuesResponse { issues })).into_response()
 }

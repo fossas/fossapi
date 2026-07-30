@@ -4,6 +4,7 @@
 
 use clap::Parser;
 use fossapi::cli::{Cli, Command, Entity, GetCommand, ListCommand};
+use fossapi::IssueCategory;
 
 #[test]
 fn test_cli_parses_get_subcommand() {
@@ -92,7 +93,7 @@ fn test_entity_variants() {
 
     // Issue (get uses GetCommand with u64 id)
     let cli = Cli::parse_from(["fossapi", "get", "issue", "123"]);
-    assert!(matches!(cli.command, Command::Get { command: GetCommand::Issue { id: 123 } }));
+    assert!(matches!(cli.command, Command::Get { command: GetCommand::Issue { id: 123, .. } }));
 
     // Dependencies (list uses ListCommand with required revision)
     let cli = Cli::parse_from(["fossapi", "list", "dependencies", "loc"]);
@@ -129,11 +130,30 @@ fn test_get_revision_parses_locator() {
 fn test_get_issue_parses_numeric_id() {
     let cli = Cli::parse_from(["fossapi", "get", "issue", "12345"]);
     match cli.command {
-        Command::Get { command: GetCommand::Issue { id } } => {
+        Command::Get { command: GetCommand::Issue { id, category } } => {
             assert_eq!(id, 12345u64);
+            assert_eq!(category, None);
         }
         _ => panic!("Expected GetCommand::Issue"),
     }
+}
+
+#[test]
+fn test_get_issue_with_category() {
+    let cli = Cli::parse_from(["fossapi", "get", "issue", "12345", "--category", "licensing"]);
+    match cli.command {
+        Command::Get { command: GetCommand::Issue { id, category } } => {
+            assert_eq!(id, 12345u64);
+            assert_eq!(category, Some(IssueCategory::Licensing));
+        }
+        _ => panic!("Expected GetCommand::Issue"),
+    }
+}
+
+#[test]
+fn test_get_issue_rejects_unknown_category() {
+    let result = Cli::try_parse_from(["fossapi", "get", "issue", "12345", "--category", "bogus"]);
+    assert!(result.is_err(), "Expected unknown category to be rejected");
 }
 
 // =============================================================================
@@ -166,11 +186,21 @@ fn test_list_projects_with_pagination() {
 
 #[test]
 fn test_list_issues_parses() {
-    let cli = Cli::parse_from(["fossapi", "list", "issues"]);
-    assert!(matches!(
-        cli.command,
-        Command::List { command: ListCommand::Issues { .. } }
-    ));
+    let cli = Cli::parse_from(["fossapi", "list", "issues", "--category", "vulnerability"]);
+    match cli.command {
+        Command::List { command: ListCommand::Issues { page, count, category } } => {
+            assert_eq!(page, None);
+            assert_eq!(count, None);
+            assert_eq!(category, IssueCategory::Vulnerability);
+        }
+        _ => panic!("Expected ListCommand::Issues"),
+    }
+}
+
+#[test]
+fn test_list_issues_requires_category() {
+    let result = Cli::try_parse_from(["fossapi", "list", "issues"]);
+    assert!(result.is_err(), "Expected --category to be required");
 }
 
 #[test]
@@ -198,11 +228,14 @@ fn test_list_revisions_requires_project_arg() {
 
 #[test]
 fn test_list_issues_with_pagination() {
-    let cli = Cli::parse_from(["fossapi", "list", "issues", "--page", "3", "--count", "25"]);
+    let cli = Cli::parse_from([
+        "fossapi", "list", "issues", "--page", "3", "--count", "25", "--category", "quality",
+    ]);
     match cli.command {
-        Command::List { command: ListCommand::Issues { page, count } } => {
+        Command::List { command: ListCommand::Issues { page, count, category } } => {
             assert_eq!(page, Some(3));
             assert_eq!(count, Some(25));
+            assert_eq!(category, IssueCategory::Quality);
         }
         _ => panic!("Expected ListCommand::Issues"),
     }

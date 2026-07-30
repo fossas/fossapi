@@ -2,7 +2,7 @@
 //!
 //! Uses wiremock to mock the FOSSA API and test actual execution flow.
 
-use fossapi::{get_dependencies, FossaClient, Issue, List, Project};
+use fossapi::{get_dependencies, FossaClient, Issue, IssueCategory, IssueListQuery, List, Project};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -116,15 +116,20 @@ async fn test_list_issues_returns_page() {
 
     Mock::given(method("GET"))
         .and(path("/v2/issues"))
+        .and(query_param("category", "vulnerability"))
         .respond_with(ResponseTemplate::new(200).set_body_json(&response))
         .expect(1)
         .mount(&mock_server)
         .await;
 
     let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
-    let page = Issue::list_page(&client, &Default::default(), 1, 20)
+    let query = IssueListQuery {
+        category: Some(IssueCategory::Vulnerability),
+        ..Default::default()
+    };
+    let page = Issue::list_page(&client, &query, 1, 20)
         .await
-        .unwrap();
+        .expect("Failed to list issues");
 
     assert_eq!(page.items.len(), 2);
     assert_eq!(page.items[0].id, 1);

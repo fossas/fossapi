@@ -5,6 +5,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use clap::ValueEnum;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -80,6 +81,51 @@ mod tests {
         assert_eq!(issue.exploitability.as_deref(), Some("MATURE"));
         assert!(issue.epss.is_some());
         assert_eq!(issue.cwes, vec!["CWE-254"]);
+
+        let remediation = issue
+            .remediation
+            .expect("Vulnerability should have remediation");
+        assert_eq!(remediation.partial_fix.as_deref(), Some("1.15.4"));
+        assert_eq!(remediation.complete_fix.as_deref(), Some("1.16.0"));
+        assert_eq!(remediation.partial_fix_distance.as_deref(), Some("PATCH"));
+        assert_eq!(remediation.complete_fix_distance.as_deref(), Some("MAJOR"));
+    }
+
+    /// Guards the camelCase mapping: every key here is one the API actually
+    /// sends, and each is `Option` + `#[serde(default)]`, so a rename would
+    /// silently deserialize to `None` rather than fail.
+    #[test]
+    fn test_issue_remediation_deserialize_all_fields() {
+        let json = r#"{
+            "partialFix": "5.0.52",
+            "completeFix": "6.0.0",
+            "partialFixDistance": "MINOR",
+            "completeFixDistance": "MAJOR"
+        }"#;
+
+        let remediation =
+            serde_json::from_str::<IssueRemediation>(json).expect("Failed to deserialize");
+
+        assert_eq!(remediation.partial_fix.as_deref(), Some("5.0.52"));
+        assert_eq!(remediation.complete_fix.as_deref(), Some("6.0.0"));
+        assert_eq!(remediation.partial_fix_distance.as_deref(), Some("MINOR"));
+        assert_eq!(remediation.complete_fix_distance.as_deref(), Some("MAJOR"));
+    }
+
+    #[test]
+    fn test_issue_without_remediation_deserializes() {
+        let json = r#"{
+            "id": 28,
+            "type": "vulnerability",
+            "source": {"id": "npm+lodash$4.2.0"},
+            "depths": {"direct": 1, "deep": 0},
+            "statuses": {"active": 1, "ignored": 0},
+            "projects": []
+        }"#;
+
+        let issue = serde_json::from_str::<Issue>(json).expect("Failed to deserialize");
+
+        assert!(issue.remediation.is_none());
     }
 
     #[test]
@@ -669,7 +715,7 @@ pub struct IssueEpss {
 }
 
 /// Issue category for filtering.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum IssueCategory {
     /// Security vulnerabilities.
@@ -678,6 +724,15 @@ pub enum IssueCategory {
     Licensing,
     /// Code quality concerns.
     Quality,
+}
+
+impl IssueCategory {
+    /// Every category, in the order [`Issue::get`] probes them.
+    pub const ALL: [IssueCategory; 3] = [
+        IssueCategory::Vulnerability,
+        IssueCategory::Licensing,
+        IssueCategory::Quality,
+    ];
 }
 
 /// Query parameters for listing issues.
@@ -719,12 +774,32 @@ struct IssueListResponse {
 impl Get for Issue {
     type Id = u64;
 
+    /// Fetch an issue by ID, discovering its category.
+    ///
+    /// The API requires a category and answers `404` when the ID exists under a
+    /// different one, so this probes [`IssueCategory::ALL`] in order and returns
+    /// the first hit — up to three requests. Prefer
+    /// [`Issue::get_with_category`] when the category is already known.
+    ///
+    /// Only `404` advances to the next category; any other failure (auth, rate
+    /// limit, server error) is returned as-is rather than being reported as a
+    /// missing issue.
     #[tracing::instrument(skip(client))]
     async fn get(client: &FossaClient, id: Self::Id) -> Result<Self> {
-        let path = format!("v2/issues/{id}");
-        let response = client.get(&path).await?;
-        let issue: Issue = response.json().await.map_err(FossaError::HttpError)?;
-        Ok(issue)
+        for category in IssueCategory::ALL {
+            match Issue::get_with_category(client, id, category).await {
+                Err(FossaError::ApiError {
+                    status_code: Some(404),
+                    ..
+                }) => continue,
+                result => return result,
+            }
+        }
+
+        Err(FossaError::NotFound {
+            entity_type: "Issue",
+            id: id.to_string(),
+        })
     }
 }
 
