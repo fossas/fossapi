@@ -5,7 +5,9 @@
 
 use std::collections::BTreeSet;
 
-use crate::{CodeLine, Issue, Project, Revision, Snippet, SnippetKind, SnippetMatchDetails};
+use crate::{
+    CodeLine, Issue, IssueMetric, Project, Revision, Snippet, SnippetKind, SnippetMatchDetails,
+};
 
 /// Trait for human-readable key-value output.
 ///
@@ -122,8 +124,53 @@ impl PrettyPrint for Issue {
             lines.push(format!("License:        {license}"));
         }
 
+        if let Some(ref latest) = self.latest_version {
+            lines.push(format!("Latest version: {latest}"));
+        }
+
+        if !self.affected_version_ranges.is_empty() {
+            lines.push(format!(
+                "Affected:       {}",
+                self.affected_version_ranges.join(", ")
+            ));
+        }
+
+        if !self.patched_version_ranges.is_empty() {
+            lines.push(format!(
+                "Patched:        {}",
+                self.patched_version_ranges.join(", ")
+            ));
+        }
+
+        if let Some(ref status) = self.cve_status {
+            lines.push(format!("CVE status:     {status}"));
+        }
+
+        if let Some(ref url) = self.url {
+            lines.push(format!("URL:            {url}"));
+        }
+
+        if !self.references.is_empty() {
+            lines.push("References:".to_string());
+            lines.extend(self.references.iter().map(|r| format!("  {r}")));
+        }
+
+        let metrics = metric_lines(&self.metrics);
+        if !metrics.is_empty() {
+            lines.push("Metrics:".to_string());
+            lines.extend(metrics);
+        }
+
         lines.join("\n")
     }
+}
+
+/// Render each CVSS metric that carries a value as an indented `name: value` line.
+fn metric_lines(metrics: &[IssueMetric]) -> Vec<String> {
+    metrics
+        .iter()
+        .filter_map(|m| m.value.as_ref().map(|v| format!("  {}: {v}", m.name)))
+        .collect()
 }
 
 fn snippet_kind_label(kind: SnippetKind) -> &'static str {

@@ -60,7 +60,20 @@ mod tests {
             "cwes": ["CWE-254"],
             "published": "2018-09-04T00:00:00.000Z",
             "exploitability": "MATURE",
-            "epss": {"score": 0.1234, "percentile": 0.42}
+            "epss": {"score": 0.1234, "percentile": 0.42},
+            "url": "https://app.fossa.com/issues/vulnerability/27",
+            "cveStatus": "COMPLETED",
+            "affectedVersionRanges": ["<5.0.52", ">=5.1.0-beta.0,<5.1.0-beta.9"],
+            "patchedVersionRanges": [],
+            "cpes": [],
+            "references": [
+                "https://github.com/vercel/ai/commit/930399bb9839a8baf3d349614106d78268775eed",
+                "https://vercel.com/changelog/cve-2025-48985-input-validation-bypass-on-ai-sdk"
+            ],
+            "metrics": [
+                {"name": "Attack Vector", "value": "Network"},
+                {"name": "Attack Complexity", "value": "High"}
+            ]
         }"#;
 
         let issue: Issue = serde_json::from_str(json).expect("Failed to deserialize vulnerability issue");
@@ -81,6 +94,21 @@ mod tests {
         assert_eq!(issue.exploitability.as_deref(), Some("MATURE"));
         assert!(issue.epss.is_some());
         assert_eq!(issue.cwes, vec!["CWE-254"]);
+        assert_eq!(
+            issue.url.as_deref(),
+            Some("https://app.fossa.com/issues/vulnerability/27")
+        );
+        assert_eq!(issue.cve_status.as_deref(), Some("COMPLETED"));
+        assert_eq!(
+            issue.affected_version_ranges,
+            vec!["<5.0.52", ">=5.1.0-beta.0,<5.1.0-beta.9"]
+        );
+        assert!(issue.patched_version_ranges.is_empty());
+        assert_eq!(issue.references.len(), 2);
+        assert!(issue.references[0].contains("github.com/vercel/ai/commit"));
+        assert_eq!(issue.metrics.len(), 2);
+        assert_eq!(issue.metrics[0].name, "Attack Vector");
+        assert_eq!(issue.metrics[0].value.as_deref(), Some("Network"));
 
         let remediation = issue
             .remediation
@@ -128,6 +156,20 @@ mod tests {
         assert!(issue.remediation.is_none());
     }
 
+    /// A metric with no `value` must not fail the whole issue's deserialization.
+    #[test]
+    fn test_issue_metric_deserialize() {
+        let metric =
+            serde_json::from_str::<IssueMetric>(r#"{"name": "Attack Vector", "value": "Network"}"#)
+                .expect("Failed to deserialize metric");
+        assert_eq!(metric.name, "Attack Vector");
+        assert_eq!(metric.value.as_deref(), Some("Network"));
+
+        let valueless = serde_json::from_str::<IssueMetric>(r#"{"name": "Scope"}"#)
+            .expect("Failed to deserialize valueless metric");
+        assert!(valueless.value.is_none());
+    }
+
     #[test]
     fn test_issue_deserialize_licensing() {
         let json = r#"{
@@ -143,7 +185,8 @@ mod tests {
             "statuses": {"active": 1, "ignored": 0},
             "projects": [],
             "type": "licensing",
-            "license": "GPL-3.0"
+            "license": "GPL-3.0",
+            "url": "https://app.fossa.com/issues/licensing/42"
         }"#;
 
         let issue: Issue = serde_json::from_str(json).expect("Failed to deserialize licensing issue");
@@ -153,6 +196,14 @@ mod tests {
         assert_eq!(issue.license.as_deref(), Some("GPL-3.0"));
         assert!(issue.cve.is_none());
         assert!(issue.cvss.is_none());
+        assert_eq!(
+            issue.url.as_deref(),
+            Some("https://app.fossa.com/issues/licensing/42")
+        );
+        assert!(issue.affected_version_ranges.is_empty());
+        assert!(issue.references.is_empty());
+        assert!(issue.metrics.is_empty());
+        assert!(issue.cve_status.is_none());
     }
 
     #[test]
@@ -170,7 +221,9 @@ mod tests {
             "statuses": {"active": 1, "ignored": 0},
             "projects": [],
             "type": "quality",
-            "qualityRule": {"name": "outdated", "threshold": 365}
+            "qualityRule": {"name": "outdated", "threshold": 365},
+            "latestVersion": "npm+old-package$2.0.0",
+            "url": "https://app.fossa.com/issues/quality/100"
         }"#;
 
         let issue: Issue = serde_json::from_str(json).expect("Failed to deserialize quality issue");
@@ -180,6 +233,62 @@ mod tests {
         assert!(issue.quality_rule.is_some());
         assert!(issue.license.is_none());
         assert!(issue.cve.is_none());
+        assert_eq!(
+            issue.latest_version.as_deref(),
+            Some("npm+old-package$2.0.0")
+        );
+        assert_eq!(
+            issue.url.as_deref(),
+            Some("https://app.fossa.com/issues/quality/100")
+        );
+    }
+
+    /// Every key the API sends on a project entry, including its three timestamp formats.
+    #[test]
+    fn test_issue_project_deserialize_full() {
+        let json = r#"{
+            "id": "custom+58216/testproject/withslash",
+            "title": "testproject/withslash",
+            "status": "active",
+            "depth": 1,
+            "url": "https://app.fossa.com/projects/custom%2B58216%2Ftestproject%2Fwithslash",
+            "revisionId": "custom+58216/testproject/withslash$2026-04-10T16:08:51Z",
+            "revisionScanId": 114469956,
+            "defaultBranch": "master",
+            "latest": true,
+            "firstFoundAt": "2026-04-10T16:19:48.2+00:00",
+            "scannedAt": "2026-04-10T16:19:50.611168+00:00",
+            "analyzedAt": "2026-04-10T16:09:30.488Z"
+        }"#;
+
+        let project =
+            serde_json::from_str::<IssueProject>(json).expect("Failed to deserialize issue project");
+
+        assert_eq!(project.id, "custom+58216/testproject/withslash");
+        assert_eq!(project.status.as_deref(), Some("active"));
+        assert!(project.url.is_some());
+        assert_eq!(
+            project.revision_id.as_deref(),
+            Some("custom+58216/testproject/withslash$2026-04-10T16:08:51Z")
+        );
+        assert_eq!(project.revision_scan_id, Some(114469956));
+        assert_eq!(project.default_branch.as_deref(), Some("master"));
+        assert_eq!(project.latest, Some(true));
+        assert!(project.first_found_at.is_some());
+        assert!(project.scanned_at.is_some());
+        assert!(project.analyzed_at.is_some());
+    }
+
+    /// Fields absent on a minimal project entry default rather than erroring.
+    #[test]
+    fn test_issue_project_deserialize_minimal() {
+        let project = serde_json::from_str::<IssueProject>(r#"{"id": "custom+1/TEST"}"#)
+            .expect("Failed to deserialize minimal issue project");
+
+        assert_eq!(project.id, "custom+1/TEST");
+        assert!(project.url.is_none());
+        assert!(project.latest.is_none());
+        assert!(project.first_found_at.is_none());
     }
 
     #[test]
@@ -294,6 +403,7 @@ mod tests {
             depths: IssueDepths::default(),
             statuses: IssueStatuses { active: 3, ignored: 1 },
             projects: vec![],
+            url: None,
             vuln_id: None,
             title: None,
             cve: Some("CVE-2023-1234".to_string()),
@@ -306,8 +416,14 @@ mod tests {
             published: None,
             exploitability: None,
             epss: None,
+            affected_version_ranges: vec![],
+            patched_version_ranges: vec![],
+            references: vec![],
+            metrics: vec![],
+            cve_status: None,
             license: None,
             quality_rule: None,
+            latest_version: None,
         }
     }
 
@@ -475,6 +591,10 @@ pub struct Issue {
     #[serde(default)]
     pub projects: Vec<IssueProject>,
 
+    /// Deep link to this issue in the FOSSA UI. Present on all three categories.
+    #[serde(default)]
+    pub url: Option<String>,
+
     // --- Vulnerability-specific fields ---
 
     /// Vulnerability ID (e.g., "CVE-2018-16487_npm+lodash").
@@ -525,6 +645,28 @@ pub struct Issue {
     #[serde(default)]
     pub epss: Option<IssueEpss>,
 
+    /// Version ranges known to be vulnerable (e.g. `["<5.0.52", ">=5.1.0-beta.0,<5.1.0-beta.9"]`).
+    #[serde(default)]
+    pub affected_version_ranges: Vec<String>,
+
+    /// Version ranges carrying the fix. Populated far less often than
+    /// [`Issue::affected_version_ranges`]; prefer [`Issue::remediation`] for upgrade targets.
+    #[serde(default)]
+    pub patched_version_ranges: Vec<String>,
+
+    /// Upstream advisory links: fix commits, vendor changelogs, CVE records.
+    #[serde(default)]
+    pub references: Vec<String>,
+
+    /// CVSS vector decomposed into readable name/value pairs.
+    #[serde(default)]
+    pub metrics: Vec<IssueMetric>,
+
+    /// State of FOSSA's CVE enrichment (e.g. "COMPLETED"). Anything other than
+    /// completed explains missing `cvss`/`severity`.
+    #[serde(default)]
+    pub cve_status: Option<String>,
+
     // --- Licensing-specific fields ---
 
     /// License identifier (e.g., "GPL-3.0").
@@ -536,6 +678,10 @@ pub struct Issue {
     /// Quality rule details.
     #[serde(default)]
     pub quality_rule: Option<serde_json::Value>,
+
+    /// Locator of the newest published version of the package (e.g. "npm+abab$2.0.6").
+    #[serde(default)]
+    pub latest_version: Option<String>,
 }
 
 impl Issue {
@@ -679,6 +825,38 @@ pub struct IssueProject {
     /// Project title.
     #[serde(default)]
     pub title: Option<String>,
+
+    /// Deep link to the project in the FOSSA UI.
+    #[serde(default)]
+    pub url: Option<String>,
+
+    /// Locator of the revision where the issue was found.
+    #[serde(default)]
+    pub revision_id: Option<String>,
+
+    /// Whether that revision is the project's latest.
+    #[serde(default)]
+    pub latest: Option<bool>,
+
+    /// Numeric ID of the scan that produced the revision.
+    #[serde(default)]
+    pub revision_scan_id: Option<u64>,
+
+    /// The project's default branch.
+    #[serde(default)]
+    pub default_branch: Option<String>,
+
+    /// When the issue was first seen in this project.
+    #[serde(default)]
+    pub first_found_at: Option<DateTime<Utc>>,
+
+    /// When the revision was scanned.
+    #[serde(default)]
+    pub scanned_at: Option<DateTime<Utc>>,
+
+    /// When the revision finished analysis.
+    #[serde(default)]
+    pub analyzed_at: Option<DateTime<Utc>>,
 }
 
 /// Remediation information for a vulnerability.
@@ -712,6 +890,17 @@ pub struct IssueEpss {
     /// EPSS percentile ranking.
     #[serde(default)]
     pub percentile: Option<f64>,
+}
+
+/// One decomposed CVSS metric, e.g. name "Attack Vector", value "Network".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueMetric {
+    /// Metric name (e.g. "Attack Vector", "Privileges Required").
+    pub name: String,
+
+    /// Metric value (e.g. "Network", "None").
+    #[serde(default)]
+    pub value: Option<String>,
 }
 
 /// Issue category for filtering.

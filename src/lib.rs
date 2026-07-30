@@ -100,6 +100,7 @@ pub use models::{
     IssueDepths,
     IssueEpss,
     IssueListQuery,
+    IssueMetric,
     IssueProject,
     IssueRemediation,
     IssueSource,
