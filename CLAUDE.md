@@ -73,6 +73,10 @@ erDiagram
         IssueStatuses statuses "active, ignored counts"
         String severity "critical, high, medium, low"
         String cve "CVE identifier (vulns only)"
+        String url "deep link into the FOSSA UI (all categories)"
+        Vec_String affected_version_ranges "e.g. <5.0.52 (vulns only)"
+        Vec_String references "upstream advisory/commit URLs (vulns only)"
+        Vec_IssueMetric metrics "CVSS vector decomposed: Attack Vector = Network"
         DateTime created_at
     }
 
@@ -137,7 +141,7 @@ Project (top-level container)
 - **Project** - Top-level container, implements Get/List/Update
 - **Revision** - Snapshot at point in time, implements Get/List
 - **Dependency** - Package dependency, implements List only (via revision)
-- **Issue** - Vulnerability/licensing/quality issue, implements Get/List
+- **Issue** - Vulnerability/licensing/quality issue, implements Get/List. `Issue` has no `deny_unknown_fields`, so any API key not declared on the struct is silently dropped — when the API grows a field, add it here or callers never see it. `cpes` is deliberately unmodeled (empty on all 80 sampled issues); `patchedVersionRanges` is modeled but rarely populated (1/80) — prefer `remediation` for upgrade targets. `IssueProject` entries carry the revision the issue was found in (`revision_id`, `latest`, `first_found_at`), not just the project.
 - **Snippet** - Third-party (OSS) code matched into first-party files, implements List only (via revision). Read-only; reached through the `get_snippet_*` convenience functions. Quirks: `id` is a string, `matchDetails.matchPercentage` is 0-100 (other percentages are 0-1), and whole-file matches highlight a trailing blank EOF line that is excluded from the reported range.
 - **LicenseInfo** - Can be simple string ("MIT") or full object
 
@@ -147,9 +151,11 @@ Issues come in three categories with different fields:
 
 | Category | Key Fields | Description |
 |----------|------------|-------------|
-| `vulnerability` | cve, cvss, severity, remediation, epss | Security vulnerabilities |
+| `vulnerability` | cve, cvss, severity, remediation, epss, affectedVersionRanges, references, metrics, cveStatus | Security vulnerabilities |
 | `licensing` | license | License compliance issues |
-| `quality` | qualityRule | Code quality concerns |
+| `quality` | qualityRule, latestVersion | Code quality concerns |
+
+All three categories also carry `url` (deep link into the FOSSA UI).
 
 ## Future Work
 

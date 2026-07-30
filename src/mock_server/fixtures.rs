@@ -3,8 +3,8 @@
 //! Provides factory functions for creating realistic test data.
 
 use crate::{
-    Dependency, Issue, IssueDepths, IssueSource, IssueStatuses, LatestRevision, Project,
-    ProjectIssues, Revision,
+    Dependency, Issue, IssueDepths, IssueMetric, IssueSource, IssueStatuses, LatestRevision,
+    Project, ProjectIssues, Revision,
 };
 
 /// Collection of fixture factories for test data.
@@ -165,6 +165,7 @@ impl Fixtures {
             },
             projects: vec![],
             created_at: None,
+            url: Some(format!("https://app.fossa.com/issues/vulnerability/{id}")),
             cve: Some(cve.to_string()),
             cvss: Some(7.5),
             cvss_vector: None,
@@ -175,10 +176,25 @@ impl Fixtures {
             published: None,
             exploitability: None,
             epss: None,
+            affected_version_ranges: vec!["<1.0.0".to_string()],
+            patched_version_ranges: vec![],
+            references: vec![format!("https://nvd.nist.gov/vuln/detail/{}", cve)],
+            metrics: vec![
+                IssueMetric {
+                    name: "Attack Vector".to_string(),
+                    value: Some("Network".to_string()),
+                },
+                IssueMetric {
+                    name: "Attack Complexity".to_string(),
+                    value: Some("Low".to_string()),
+                },
+            ],
+            cve_status: Some("COMPLETED".to_string()),
             vuln_id: Some(format!("{}_{}", cve, package_locator)),
             title: Some(format!("{} Vulnerability", cve)),
             license: None,
             quality_rule: None,
+            latest_version: None,
         }
     }
 
@@ -201,6 +217,7 @@ impl Fixtures {
             },
             projects: vec![],
             created_at: None,
+            url: Some(format!("https://app.fossa.com/issues/licensing/{id}")),
             cve: None,
             cvss: None,
             cvss_vector: None,
@@ -211,10 +228,16 @@ impl Fixtures {
             published: None,
             exploitability: None,
             epss: None,
+            affected_version_ranges: vec![],
+            patched_version_ranges: vec![],
+            references: vec![],
+            metrics: vec![],
+            cve_status: None,
             vuln_id: None,
             title: None,
             license: Some(license.to_string()),
             quality_rule: None,
+            latest_version: None,
         }
     }
 

@@ -120,6 +120,32 @@ fn test_issue_pretty_print_shows_severity() {
 }
 
 #[test]
+fn test_issue_pretty_print_shows_references_and_metrics() {
+    let issue = make_test_issue();
+    let output = issue.pretty_print();
+
+    assert!(
+        output.contains("https://app.fossa.com/issues/vulnerability/12345"),
+        "Should show the FOSSA deep link"
+    );
+    assert!(output.contains("COMPLETED"), "Should show CVE status");
+    assert!(output.contains("<4.17.21"), "Should show affected ranges");
+    assert!(output.contains("Patched:"), "Should show patched ranges");
+    assert!(
+        output.contains("https://nvd.nist.gov/vuln/detail/CVE-2021-1234"),
+        "Should list reference URLs"
+    );
+    assert!(
+        output.contains("Attack Vector: Network"),
+        "Should show CVSS metrics"
+    );
+    assert!(
+        !output.contains("Scope"),
+        "Should skip metrics that carry no value"
+    );
+}
+
+#[test]
 fn test_revision_pretty_print_shows_key_fields() {
     // Revision pretty-print must show: Locator, Resolved, Source
     let revision = make_test_revision();
@@ -165,7 +191,16 @@ fn make_test_issue() -> Issue {
         "statuses": { "active": 1, "ignored": 0 },
         "projects": [],
         "severity": "high",
-        "cve": "CVE-2021-1234"
+        "cve": "CVE-2021-1234",
+        "url": "https://app.fossa.com/issues/vulnerability/12345",
+        "cveStatus": "COMPLETED",
+        "affectedVersionRanges": ["<4.17.21"],
+        "patchedVersionRanges": ["4.17.21"],
+        "references": ["https://nvd.nist.gov/vuln/detail/CVE-2021-1234"],
+        "metrics": [
+            {"name": "Attack Vector", "value": "Network"},
+            {"name": "Scope"}
+        ]
     }))
     .unwrap()
 }
