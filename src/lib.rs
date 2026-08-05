@@ -57,6 +57,7 @@ mod client;
 mod error;
 pub mod mcp;
 mod models;
+pub mod ops;
 pub mod output;
 mod pagination;
 mod traits;

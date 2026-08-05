@@ -1,9 +1,15 @@
-//! CLI argument parsing tests (TDD RED phase)
+//! CLI argument parsing tests.
 //!
-//! These tests define the expected CLI interface. Written BEFORE implementation.
+//! These tests define the expected CLI interface. The subcommands parse into
+//! the shared operation enums in `fossapi::ops`, which the MCP server also
+//! consumes.
 
 use clap::Parser;
-use fossapi::cli::{Cli, Command, Entity, GetCommand, ListCommand};
+use fossapi::cli::{Cli, Command, GetCommand, ListCommand, UpdateCommand};
+use fossapi::ops::{
+    GetIssueParams, GetProjectParams, GetRevisionParams, ListDependenciesParams, ListIssuesParams,
+    ListProjectsParams, ListRevisionsParams, PageArgs, UpdateProjectParams,
+};
 use fossapi::IssueCategory;
 
 #[test]
@@ -13,7 +19,7 @@ fn test_cli_parses_get_subcommand() {
     assert!(!cli.json);
     match cli.command {
         Command::Get {
-            command: GetCommand::Project { locator },
+            command: GetCommand::Project(GetProjectParams { locator }),
         } => {
             assert_eq!(locator, "custom+acme/myapp");
         }
@@ -28,7 +34,7 @@ fn test_cli_parses_list_subcommand() {
     assert!(!cli.json);
     match cli.command {
         Command::List {
-            command: ListCommand::Projects { .. },
+            command: ListCommand::Projects(..),
         } => {}
         _ => panic!("Expected List command with Projects variant"),
     }
@@ -48,12 +54,8 @@ fn test_cli_parses_update_subcommand() {
     assert!(!cli.json);
     match cli.command {
         Command::Update {
-            entity,
-            locator,
-            title,
-            ..
+            command: UpdateCommand::Project(UpdateProjectParams { locator, title, .. }),
         } => {
-            assert!(matches!(entity, Entity::Project));
             assert_eq!(locator, "custom+acme/myapp");
             assert_eq!(title, Some("New Title".to_string()));
         }
@@ -80,7 +82,10 @@ fn test_list_pagination_args() {
 
     match cli.command {
         Command::List {
-            command: ListCommand::Projects { page, count },
+            command:
+                ListCommand::Projects(ListProjectsParams {
+                    pagination: PageArgs { page, count },
+                }),
         } => {
             assert_eq!(page, Some(2));
             assert_eq!(count, Some(50));
@@ -96,7 +101,7 @@ fn test_entity_variants() {
     assert!(matches!(
         cli.command,
         Command::Get {
-            command: GetCommand::Project { .. }
+            command: GetCommand::Project(..)
         }
     ));
 
@@ -105,7 +110,7 @@ fn test_entity_variants() {
     assert!(matches!(
         cli.command,
         Command::Get {
-            command: GetCommand::Revision { .. }
+            command: GetCommand::Revision(..)
         }
     ));
 
@@ -114,7 +119,7 @@ fn test_entity_variants() {
     assert!(matches!(
         cli.command,
         Command::Get {
-            command: GetCommand::Issue { id: 123, .. }
+            command: GetCommand::Issue(GetIssueParams { id: 123, .. })
         }
     ));
 
@@ -123,13 +128,13 @@ fn test_entity_variants() {
     assert!(matches!(
         cli.command,
         Command::List {
-            command: ListCommand::Dependencies { .. }
+            command: ListCommand::Dependencies(..)
         }
     ));
 }
 
 // =============================================================================
-// TDD Tests for ISS-10843: GetCommand type-safe parsing
+// GetCommand type-safe parsing
 // =============================================================================
 
 #[test]
@@ -137,7 +142,7 @@ fn test_get_project_parses_locator() {
     let cli = Cli::parse_from(["fossapi", "get", "project", "custom+acme/myapp"]);
     match cli.command {
         Command::Get {
-            command: GetCommand::Project { locator },
+            command: GetCommand::Project(GetProjectParams { locator }),
         } => {
             assert_eq!(locator, "custom+acme/myapp");
         }
@@ -150,7 +155,7 @@ fn test_get_revision_parses_locator() {
     let cli = Cli::parse_from(["fossapi", "get", "revision", "custom+acme/myapp$abc123"]);
     match cli.command {
         Command::Get {
-            command: GetCommand::Revision { locator },
+            command: GetCommand::Revision(GetRevisionParams { locator }),
         } => {
             assert_eq!(locator, "custom+acme/myapp$abc123");
         }
@@ -163,7 +168,7 @@ fn test_get_issue_parses_numeric_id() {
     let cli = Cli::parse_from(["fossapi", "get", "issue", "12345"]);
     match cli.command {
         Command::Get {
-            command: GetCommand::Issue { id, category },
+            command: GetCommand::Issue(GetIssueParams { id, category }),
         } => {
             assert_eq!(id, 12345u64);
             assert_eq!(category, None);
@@ -184,7 +189,7 @@ fn test_get_issue_with_category() {
     ]);
     match cli.command {
         Command::Get {
-            command: GetCommand::Issue { id, category },
+            command: GetCommand::Issue(GetIssueParams { id, category }),
         } => {
             assert_eq!(id, 12345u64);
             assert_eq!(category, Some(IssueCategory::Licensing));
@@ -200,7 +205,7 @@ fn test_get_issue_rejects_unknown_category() {
 }
 
 // =============================================================================
-// TDD Tests for ISS-10844: ListCommand type-safe parsing
+// ListCommand type-safe parsing
 // =============================================================================
 
 #[test]
@@ -208,10 +213,10 @@ fn test_list_projects_parses() {
     let cli = Cli::parse_from(["fossapi", "list", "projects"]);
     match cli.command {
         Command::List {
-            command: ListCommand::Projects { page, count },
+            command: ListCommand::Projects(ListProjectsParams { pagination }),
         } => {
-            assert_eq!(page, None);
-            assert_eq!(count, None);
+            assert_eq!(pagination.page, None);
+            assert_eq!(pagination.count, None);
         }
         _ => panic!("Expected ListCommand::Projects"),
     }
@@ -224,10 +229,10 @@ fn test_list_projects_with_pagination() {
     ]);
     match cli.command {
         Command::List {
-            command: ListCommand::Projects { page, count },
+            command: ListCommand::Projects(ListProjectsParams { pagination }),
         } => {
-            assert_eq!(page, Some(2));
-            assert_eq!(count, Some(50));
+            assert_eq!(pagination.page, Some(2));
+            assert_eq!(pagination.count, Some(50));
         }
         _ => panic!("Expected ListCommand::Projects"),
     }
@@ -239,14 +244,13 @@ fn test_list_issues_parses() {
     match cli.command {
         Command::List {
             command:
-                ListCommand::Issues {
-                    page,
-                    count,
+                ListCommand::Issues(ListIssuesParams {
                     category,
-                },
+                    pagination,
+                }),
         } => {
-            assert_eq!(page, None);
-            assert_eq!(count, None);
+            assert_eq!(pagination.page, None);
+            assert_eq!(pagination.count, None);
             assert_eq!(category, IssueCategory::Vulnerability);
         }
         _ => panic!("Expected ListCommand::Issues"),
@@ -264,17 +268,18 @@ fn test_list_dependencies_requires_revision_arg() {
     let cli = Cli::parse_from(["fossapi", "list", "dependencies", "custom+org/repo$abc"]);
     match cli.command {
         Command::List {
-            command:
-                ListCommand::Dependencies {
-                    revision,
-                    revision_positional,
-                },
+            command: ListCommand::Dependencies(ListDependenciesParams { revision, .. }),
         } => {
-            assert_eq!(revision, None);
-            assert_eq!(revision_positional, Some("custom+org/repo$abc".to_string()));
+            assert_eq!(revision, "custom+org/repo$abc");
         }
         _ => panic!("Expected ListCommand::Dependencies"),
     }
+}
+
+#[test]
+fn test_list_dependencies_without_revision_is_rejected() {
+    let result = Cli::try_parse_from(["fossapi", "list", "dependencies"]);
+    assert!(result.is_err(), "Expected revision to be required");
 }
 
 #[test]
@@ -282,7 +287,7 @@ fn test_list_revisions_requires_project_arg() {
     let cli = Cli::parse_from(["fossapi", "list", "revisions", "custom+org/repo"]);
     match cli.command {
         Command::List {
-            command: ListCommand::Revisions { project, .. },
+            command: ListCommand::Revisions(ListRevisionsParams { project, .. }),
         } => {
             assert_eq!(project, "custom+org/repo");
         }
@@ -306,14 +311,13 @@ fn test_list_issues_with_pagination() {
     match cli.command {
         Command::List {
             command:
-                ListCommand::Issues {
-                    page,
-                    count,
+                ListCommand::Issues(ListIssuesParams {
                     category,
-                },
+                    pagination,
+                }),
         } => {
-            assert_eq!(page, Some(3));
-            assert_eq!(count, Some(25));
+            assert_eq!(pagination.page, Some(3));
+            assert_eq!(pagination.count, Some(25));
             assert_eq!(category, IssueCategory::Quality);
         }
         _ => panic!("Expected ListCommand::Issues"),
@@ -333,50 +337,21 @@ fn test_list_revisions_with_pagination() {
     match cli.command {
         Command::List {
             command:
-                ListCommand::Revisions {
+                ListCommand::Revisions(ListRevisionsParams {
                     project,
-                    page,
-                    count,
-                },
+                    pagination,
+                }),
         } => {
             assert_eq!(project, "custom+org/repo");
-            assert_eq!(page, Some(2));
-            assert_eq!(count, None);
+            assert_eq!(pagination.page, Some(2));
+            assert_eq!(pagination.count, None);
         }
         _ => panic!("Expected ListCommand::Revisions"),
     }
 }
 
 // =============================================================================
-// TDD Tests for ISS-10849: --revision flag for list dependencies
-// =============================================================================
-
-#[test]
-fn test_list_dependencies_with_revision_flag() {
-    let cli = Cli::parse_from([
-        "fossapi",
-        "list",
-        "dependencies",
-        "--revision",
-        "custom+org/repo$abc",
-    ]);
-    match cli.command {
-        Command::List {
-            command:
-                ListCommand::Dependencies {
-                    revision,
-                    revision_positional,
-                },
-        } => {
-            assert_eq!(revision, Some("custom+org/repo$abc".to_string()));
-            assert_eq!(revision_positional, None);
-        }
-        _ => panic!("Expected ListCommand::Dependencies"),
-    }
-}
-
-// =============================================================================
-// TDD Tests for ISS-10845: UpdateCommand CLI parsing
+// UpdateCommand CLI parsing
 // =============================================================================
 
 #[test]
@@ -384,9 +359,8 @@ fn test_update_project_parses_locator() {
     let cli = Cli::parse_from(["fossapi", "update", "project", "custom+acme/myapp"]);
     match cli.command {
         Command::Update {
-            entity, locator, ..
+            command: UpdateCommand::Project(UpdateProjectParams { locator, .. }),
         } => {
-            assert!(matches!(entity, Entity::Project));
             assert_eq!(locator, "custom+acme/myapp");
         }
         _ => panic!("Expected Update command"),
@@ -404,7 +378,9 @@ fn test_update_project_title_flag() {
         "New Title",
     ]);
     match cli.command {
-        Command::Update { title, .. } => {
+        Command::Update {
+            command: UpdateCommand::Project(UpdateProjectParams { title, .. }),
+        } => {
             assert_eq!(title, Some("New Title".to_string()));
         }
         _ => panic!("Expected Update command"),
@@ -422,8 +398,30 @@ fn test_update_project_public_flag() {
         "true",
     ]);
     match cli.command {
-        Command::Update { public, .. } => {
+        Command::Update {
+            command: UpdateCommand::Project(UpdateProjectParams { public, .. }),
+        } => {
             assert_eq!(public, Some(true));
+        }
+        _ => panic!("Expected Update command"),
+    }
+}
+
+#[test]
+fn test_update_project_url_flag() {
+    let cli = Cli::parse_from([
+        "fossapi",
+        "update",
+        "project",
+        "custom+acme/myapp",
+        "--url",
+        "https://example.com/repo",
+    ]);
+    match cli.command {
+        Command::Update {
+            command: UpdateCommand::Project(UpdateProjectParams { url, .. }),
+        } => {
+            assert_eq!(url, Some("https://example.com/repo".to_string()));
         }
         _ => panic!("Expected Update command"),
     }
@@ -443,13 +441,14 @@ fn test_update_project_multiple_flags() {
     ]);
     match cli.command {
         Command::Update {
-            entity,
-            locator,
-            title,
-            public,
-            ..
+            command:
+                UpdateCommand::Project(UpdateProjectParams {
+                    locator,
+                    title,
+                    public,
+                    ..
+                }),
         } => {
-            assert!(matches!(entity, Entity::Project));
             assert_eq!(locator, "custom+acme/myapp");
             assert_eq!(title, Some("New Title".to_string()));
             assert_eq!(public, Some(false));
@@ -459,7 +458,7 @@ fn test_update_project_multiple_flags() {
 }
 
 // =============================================================================
-// TDD Tests for ISS-10860: MCP CLI subcommand
+// MCP CLI subcommand
 // =============================================================================
 
 #[test]

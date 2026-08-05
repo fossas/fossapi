@@ -153,17 +153,23 @@ Add to your MCP config:
 
 ### Available Tools
 
-| Tool | Description |
-|------|-------------|
-| `get` | Fetch a single project, revision, or issue by ID |
-| `list` | List projects, revisions, dependencies, issues, or snippet match locations |
-| `update` | Update project metadata (title, description, url, public) |
-| `snippet_match` | Drill into one snippet match: the matched first-party and reference code |
+The MCP tools mirror the CLI verbs exactly: each tool takes an `entity`
+discriminator naming the subcommand, plus that subcommand's arguments (the
+input schemas are generated from the same declarations the CLI parses into).
 
-> **Snippets over MCP:** use `list` with `entity: snippet` and `parent: <revision
-> locator>` (optional `path` and `with_lines`) to map third-party matches to
-> first-party files, then `snippet_match` to drill into a single match. Snippets
-> don't support `get` or `update`.
+| Tool | Entities |
+|------|----------|
+| `get` | `project`, `revision`, `issue` (category optional — omitted probes all three), `snippet`, `snippet_match` |
+| `list` | `projects`, `issues` (category required), `dependencies`, `revisions`, `snippets`, `snippet_locations`, `snippet_paths` |
+| `update` | `project` (title, description, url, public, policy_id, default_branch) |
+
+For example, `fossapi get issue 12345 --category licensing` is
+`get {"entity": "issue", "id": 12345, "category": "licensing"}` over MCP.
+
+> **Snippets over MCP:** use `list` with `entity: snippet_locations` and
+> `revision: <revision locator>` (optional `path` and `with_lines`) to map
+> third-party matches to first-party files, then `get` with
+> `entity: snippet_match` to drill into a single match.
 
 ## Locators
 
