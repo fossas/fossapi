@@ -247,7 +247,11 @@ impl List for Revision {
 
         // Apply client-side pagination
         let start = ((page - 1) * count) as usize;
-        let items: Vec<Revision> = all_revisions.into_iter().skip(start).take(count as usize).collect();
+        let items: Vec<Revision> = all_revisions
+            .into_iter()
+            .skip(start)
+            .take(count as usize)
+            .collect();
 
         Ok(Page::new(items, page, count, Some(total)))
     }

@@ -19,7 +19,12 @@ fn get_params(entity: EntityType, id: &str, category: Option<IssueCategory>) -> 
 /// Extract text from CallToolResult content.
 fn extract_text(result: &rmcp::model::CallToolResult) -> &str {
     let content = &result.content[0];
-    content.raw.as_text().expect("Expected text content").text.as_str()
+    content
+        .raw
+        .as_text()
+        .expect("Expected text content")
+        .text
+        .as_str()
 }
 
 #[tokio::test]
@@ -45,7 +50,11 @@ async fn test_mcp_get_project_returns_json() {
     let server = FossaServer::new(client);
 
     let result = server
-        .handle_get(get_params(EntityType::Project, "custom+123/test-project", None))
+        .handle_get(get_params(
+            EntityType::Project,
+            "custom+123/test-project",
+            None,
+        ))
         .await
         .expect("handle_get should succeed");
 
@@ -76,7 +85,11 @@ async fn test_mcp_get_revision_returns_json() {
     let server = FossaServer::new(client);
 
     let result = server
-        .handle_get(get_params(EntityType::Revision, "custom+123/test$main", None))
+        .handle_get(get_params(
+            EntityType::Revision,
+            "custom+123/test$main",
+            None,
+        ))
         .await
         .expect("handle_get should succeed");
 
@@ -113,7 +126,11 @@ async fn test_mcp_get_issue_returns_json() {
     let server = FossaServer::new(client);
 
     let result = server
-        .handle_get(get_params(EntityType::Issue, "12345", Some(IssueCategory::Vulnerability)))
+        .handle_get(get_params(
+            EntityType::Issue,
+            "12345",
+            Some(IssueCategory::Vulnerability),
+        ))
         .await
         .expect("handle_get should succeed");
 
@@ -133,16 +150,19 @@ async fn test_mcp_get_dependency_returns_error() {
     let server = FossaServer::new(client);
 
     let result = server
-        .handle_get(get_params(EntityType::Dependency, "npm+lodash$4.17.21", None))
+        .handle_get(get_params(
+            EntityType::Dependency,
+            "npm+lodash$4.17.21",
+            None,
+        ))
         .await;
 
     // Should return an error, not a success
     let err = result.expect_err("get dependency should fail");
-    let err_msg = format!("{:?}", err);
+    let err_msg = format!("{err:?}");
     assert!(
         err_msg.contains("does not support get") || err_msg.contains("list with a parent"),
-        "Error should mention dependency doesn't support get: {}",
-        err_msg
+        "Error should mention dependency doesn't support get: {err_msg}"
     );
 }
 
@@ -155,15 +175,18 @@ async fn test_mcp_get_issue_with_invalid_id_returns_error() {
     let server = FossaServer::new(client);
 
     let result = server
-        .handle_get(get_params(EntityType::Issue, "not-a-number", Some(IssueCategory::Vulnerability)))
+        .handle_get(get_params(
+            EntityType::Issue,
+            "not-a-number",
+            Some(IssueCategory::Vulnerability),
+        ))
         .await;
 
     let err = result.expect_err("get issue with invalid ID should fail");
-    let err_msg = format!("{:?}", err);
+    let err_msg = format!("{err:?}");
     assert!(
         err_msg.contains("must be a number"),
-        "Error should mention issue ID must be numeric: {}",
-        err_msg
+        "Error should mention issue ID must be numeric: {err_msg}"
     );
 }
 
@@ -180,10 +203,9 @@ async fn test_mcp_get_issue_without_category_returns_error() {
         .await;
 
     let err = result.expect_err("get issue without category should fail");
-    let err_msg = format!("{:?}", err);
+    let err_msg = format!("{err:?}");
     assert!(
         err_msg.to_lowercase().contains("category"),
-        "Error should mention category is required: {}",
-        err_msg
+        "Error should mention category is required: {err_msg}"
     );
 }

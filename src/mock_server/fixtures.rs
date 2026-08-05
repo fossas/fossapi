@@ -58,7 +58,7 @@ impl Fixtures {
         let mut project = Self::minimal_project(locator, title);
         project.branch = Some(branch.to_string());
         project.latest_revision = Some(LatestRevision {
-            locator: format!("{}${}", locator, branch),
+            locator: format!("{locator}${branch}"),
             message: Some("Latest analysis".to_string()),
         });
         project.latest_build_status = Some("SUCCEEDED".to_string());
@@ -131,7 +131,7 @@ impl Fixtures {
 
     /// Create an npm dependency.
     pub fn npm_dependency(name: &str, version: &str, depth: u32) -> Dependency {
-        let mut dep = Self::minimal_dependency(&format!("npm+{}${}", name, version), depth);
+        let mut dep = Self::minimal_dependency(&format!("npm+{name}${version}"), depth);
         dep.title = Some(name.to_string());
         dep.version_field = Some(version.to_string());
         dep
@@ -142,12 +142,7 @@ impl Fixtures {
     // =========================================================================
 
     /// Create a vulnerability issue.
-    pub fn vulnerability_issue(
-        id: u64,
-        cve: &str,
-        severity: &str,
-        package_locator: &str,
-    ) -> Issue {
+    pub fn vulnerability_issue(id: u64, cve: &str, severity: &str, package_locator: &str) -> Issue {
         Issue {
             id,
             issue_type: "vulnerability".to_string(),
@@ -170,7 +165,7 @@ impl Fixtures {
             cvss: Some(7.5),
             cvss_vector: None,
             severity: Some(severity.to_string()),
-            details: Some(format!("Vulnerability {} in package", cve)),
+            details: Some(format!("Vulnerability {cve} in package")),
             remediation: None,
             cwes: vec![],
             published: None,
@@ -190,8 +185,8 @@ impl Fixtures {
                 },
             ],
             cve_status: Some("COMPLETED".to_string()),
-            vuln_id: Some(format!("{}_{}", cve, package_locator)),
-            title: Some(format!("{} Vulnerability", cve)),
+            vuln_id: Some(format!("{cve}_{package_locator}")),
+            title: Some(format!("{cve} Vulnerability")),
             license: None,
             quality_rule: None,
             latest_version: None,
@@ -262,7 +257,7 @@ pub struct DefaultScenario {
 impl DefaultScenario {
     fn new() -> Self {
         let project_locator = "custom+1/test-project";
-        let revision_locator = format!("{}$main", project_locator);
+        let revision_locator = format!("{project_locator}$main");
 
         let projects = vec![Fixtures::analyzed_project(
             project_locator,
@@ -282,12 +277,7 @@ impl DefaultScenario {
         )];
 
         let issues = vec![
-            Fixtures::vulnerability_issue(
-                1,
-                "CVE-2024-0001",
-                "high",
-                "npm+lodash$4.17.21",
-            ),
+            Fixtures::vulnerability_issue(1, "CVE-2024-0001", "high", "npm+lodash$4.17.21"),
             Fixtures::licensing_issue(2, "GPL-3.0", "npm+gpl-package$1.0.0"),
         ];
 

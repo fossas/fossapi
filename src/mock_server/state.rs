@@ -56,8 +56,7 @@ impl MockState {
 
     /// Add dependencies for a revision.
     pub fn with_dependencies(mut self, revision_locator: &str, deps: Vec<Dependency>) -> Self {
-        self.dependencies
-            .insert(revision_locator.to_string(), deps);
+        self.dependencies.insert(revision_locator.to_string(), deps);
         self
     }
 

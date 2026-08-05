@@ -148,7 +148,10 @@ mod tests {
         let params: GetParams = serde_json::from_str(json).unwrap();
         assert!(matches!(params.entity, EntityType::Issue));
         assert_eq!(params.id, "12345");
-        assert!(matches!(params.category, Some(IssueCategory::Vulnerability)));
+        assert!(matches!(
+            params.category,
+            Some(IssueCategory::Vulnerability)
+        ));
     }
 
     #[test]
@@ -164,7 +167,8 @@ mod tests {
 
     #[test]
     fn list_params_deserializes_with_all_fields() {
-        let json = r#"{"entity": "dependency", "parent": "custom+org/repo$main", "page": 2, "count": 50}"#;
+        let json =
+            r#"{"entity": "dependency", "parent": "custom+org/repo$main", "page": 2, "count": 50}"#;
         let params: ListParams = serde_json::from_str(json).unwrap();
         assert!(matches!(params.entity, EntityType::Dependency));
         assert_eq!(params.parent, Some("custom+org/repo$main".to_string()));
@@ -187,7 +191,10 @@ mod tests {
         let json = r#"{"entity": "issue", "category": "vulnerability"}"#;
         let params: ListParams = serde_json::from_str(json).unwrap();
         assert!(matches!(params.entity, EntityType::Issue));
-        assert!(matches!(params.category, Some(IssueCategory::Vulnerability)));
+        assert!(matches!(
+            params.category,
+            Some(IssueCategory::Vulnerability)
+        ));
     }
 
     #[test]
@@ -215,7 +222,8 @@ mod tests {
 
     #[test]
     fn snippet_match_params_deserializes() {
-        let json = r#"{"revision": "custom+org/repo$main", "snippet": "1295019", "path": "/src/a.rs"}"#;
+        let json =
+            r#"{"revision": "custom+org/repo$main", "snippet": "1295019", "path": "/src/a.rs"}"#;
         let params: SnippetMatchParams = serde_json::from_str(json).unwrap();
         assert_eq!(params.revision, "custom+org/repo$main");
         assert_eq!(params.snippet, "1295019");

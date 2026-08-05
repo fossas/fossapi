@@ -76,7 +76,8 @@ mod tests {
             ]
         }"#;
 
-        let issue: Issue = serde_json::from_str(json).expect("Failed to deserialize vulnerability issue");
+        let issue: Issue =
+            serde_json::from_str(json).expect("Failed to deserialize vulnerability issue");
 
         assert_eq!(issue.id, 27);
         assert_eq!(issue.issue_type, "vulnerability");
@@ -189,7 +190,8 @@ mod tests {
             "url": "https://app.fossa.com/issues/licensing/42"
         }"#;
 
-        let issue: Issue = serde_json::from_str(json).expect("Failed to deserialize licensing issue");
+        let issue: Issue =
+            serde_json::from_str(json).expect("Failed to deserialize licensing issue");
 
         assert_eq!(issue.id, 42);
         assert_eq!(issue.issue_type, "licensing");
@@ -261,8 +263,8 @@ mod tests {
             "analyzedAt": "2026-04-10T16:09:30.488Z"
         }"#;
 
-        let project =
-            serde_json::from_str::<IssueProject>(json).expect("Failed to deserialize issue project");
+        let project = serde_json::from_str::<IssueProject>(json)
+            .expect("Failed to deserialize issue project");
 
         assert_eq!(project.id, "custom+58216/testproject/withslash");
         assert_eq!(project.status.as_deref(), Some("active"));
@@ -321,7 +323,8 @@ mod tests {
     #[test]
     fn test_issue_depths_default() {
         let json = r#"{}"#;
-        let depths: IssueDepths = serde_json::from_str(json).expect("Failed to deserialize empty depths");
+        let depths: IssueDepths =
+            serde_json::from_str(json).expect("Failed to deserialize empty depths");
 
         assert_eq!(depths.direct, 0);
         assert_eq!(depths.deep, 0);
@@ -330,7 +333,8 @@ mod tests {
     #[test]
     fn test_issue_statuses_deserialize() {
         let json = r#"{"active": 5, "ignored": 2}"#;
-        let statuses: IssueStatuses = serde_json::from_str(json).expect("Failed to deserialize statuses");
+        let statuses: IssueStatuses =
+            serde_json::from_str(json).expect("Failed to deserialize statuses");
 
         assert_eq!(statuses.active, 5);
         assert_eq!(statuses.ignored, 2);
@@ -346,7 +350,7 @@ mod tests {
         let serialized = serde_qs::to_string(&query).expect("Failed to serialize query");
 
         // Empty query should serialize to empty string (no fields set)
-        assert!(serialized.is_empty() || serialized == "");
+        assert!(serialized.is_empty() || serialized.is_empty());
     }
 
     #[test]
@@ -401,7 +405,10 @@ mod tests {
                 package_manager: Some("npm".to_string()),
             },
             depths: IssueDepths::default(),
-            statuses: IssueStatuses { active: 3, ignored: 1 },
+            statuses: IssueStatuses {
+                active: 3,
+                ignored: 1,
+            },
             projects: vec![],
             url: None,
             vuln_id: None,
@@ -596,7 +603,6 @@ pub struct Issue {
     pub url: Option<String>,
 
     // --- Vulnerability-specific fields ---
-
     /// Vulnerability ID (e.g., "CVE-2018-16487_npm+lodash").
     #[serde(default)]
     pub vuln_id: Option<String>,
@@ -668,13 +674,11 @@ pub struct Issue {
     pub cve_status: Option<String>,
 
     // --- Licensing-specific fields ---
-
     /// License identifier (e.g., "GPL-3.0").
     #[serde(default)]
     pub license: Option<String>,
 
     // --- Quality-specific fields ---
-
     /// Quality rule details.
     #[serde(default)]
     pub quality_rule: Option<serde_json::Value>,

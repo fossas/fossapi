@@ -165,8 +165,7 @@ impl Project {
     ) -> Result<Option<crate::models::revision::Revision>> {
         match &self.latest_revision {
             Some(lr) => {
-                let revision =
-                    crate::models::revision::get_revision(client, &lr.locator).await?;
+                let revision = crate::models::revision::get_revision(client, &lr.locator).await?;
                 Ok(Some(revision))
             }
             None => Ok(None),
@@ -257,11 +256,7 @@ impl List for Project {
             count: u32,
         }
 
-        let params = RequestParams {
-            query,
-            page,
-            count,
-        };
+        let params = RequestParams { query, page, count };
 
         let response = client.get_with_query("v2/projects", &params).await?;
         let data: ProjectListResponse = response.json().await.map_err(FossaError::HttpError)?;

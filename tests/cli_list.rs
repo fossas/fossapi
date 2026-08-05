@@ -159,7 +159,9 @@ async fn test_list_dependencies_with_revision() {
     });
 
     Mock::given(method("GET"))
-        .and(path("/v2/revisions/custom%2Borg%2Frepo%24abc123/dependencies"))
+        .and(path(
+            "/v2/revisions/custom%2Borg%2Frepo%24abc123/dependencies",
+        ))
         .respond_with(ResponseTemplate::new(200).set_body_json(&response))
         .expect(1)
         .mount(&mock_server)
@@ -183,12 +185,10 @@ async fn test_list_projects_trait_method_called() {
 
     Mock::given(method("GET"))
         .and(path("/v2/projects"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "projects": [],
-                "total": 0
-            })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "projects": [],
+            "total": 0
+        })))
         .expect(1)
         .mount(&mock_server)
         .await;

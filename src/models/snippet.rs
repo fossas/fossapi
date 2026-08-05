@@ -213,7 +213,10 @@ mod tests {
     #[test]
     fn test_with_default_path_fills_root() {
         assert_eq!(
-            SnippetListQuery::default().with_default_path().path.as_deref(),
+            SnippetListQuery::default()
+                .with_default_path()
+                .path
+                .as_deref(),
             Some("/")
         );
         assert_eq!(
@@ -786,11 +789,9 @@ pub async fn get_snippet_match(
     let encoded_locator = urlencoding::encode(revision_locator);
     let encoded_id = urlencoding::encode(snippet_id);
     let encoded_path = urlencoding::encode(match_path);
-    let path =
-        format!("revisions/{encoded_locator}/snippets/{encoded_id}/matches/{encoded_path}");
+    let path = format!("revisions/{encoded_locator}/snippets/{encoded_id}/matches/{encoded_path}");
     let response = client.get(&path).await?;
-    let data: SnippetMatchDetailsResponse =
-        response.json().await.map_err(FossaError::HttpError)?;
+    let data: SnippetMatchDetailsResponse = response.json().await.map_err(FossaError::HttpError)?;
     Ok(data.match_details)
 }
 

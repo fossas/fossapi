@@ -44,16 +44,23 @@ async fn run(client: &FossaClient, cli: Cli) -> fossapi::Result<()> {
             title,
             description,
             public,
-        } => handle_update(client, entity, &locator, title, description, public, cli.json).await,
+        } => {
+            handle_update(
+                client,
+                entity,
+                &locator,
+                title,
+                description,
+                public,
+                cli.json,
+            )
+            .await
+        }
         Command::Mcp { verbose } => handle_mcp(client, verbose).await,
     }
 }
 
-async fn handle_get(
-    client: &FossaClient,
-    command: GetCommand,
-    json: bool,
-) -> fossapi::Result<()> {
+async fn handle_get(client: &FossaClient, command: GetCommand, json: bool) -> fossapi::Result<()> {
     match command {
         GetCommand::Project { locator } => {
             let project = Project::get(client, locator).await?;
@@ -112,8 +119,13 @@ async fn handle_list(
             let issues = Issue::list_page(client, &query, page, count).await?;
             output_page(&issues, json, |i| IssueRow::from(i))?;
         }
-        ListCommand::Dependencies { revision, revision_positional } => {
-            let revision = revision.or(revision_positional).expect("revision is required");
+        ListCommand::Dependencies {
+            revision,
+            revision_positional,
+        } => {
+            let revision = revision
+                .or(revision_positional)
+                .expect("revision is required");
             let deps = get_dependencies(client, &revision, Default::default()).await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&deps)?);
@@ -129,8 +141,7 @@ async fn handle_list(
         } => {
             let page = page.unwrap_or(1);
             let count = count.unwrap_or(20);
-            let revisions =
-                fossapi::get_revisions(client, &project, Default::default()).await?;
+            let revisions = fossapi::get_revisions(client, &project, Default::default()).await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&revisions)?);
             } else {
@@ -152,7 +163,8 @@ async fn handle_list(
             };
             let page = page.unwrap_or(1);
             let count = count.unwrap_or(20);
-            let snippets = fossapi::get_snippets_page(client, &revision, query, page, count).await?;
+            let snippets =
+                fossapi::get_snippets_page(client, &revision, query, page, count).await?;
             output_page(&snippets, json, |s| SnippetRow::from(s))?;
         }
         ListCommand::SnippetLocations {
@@ -235,13 +247,15 @@ async fn handle_mcp(client: &FossaClient, verbose: bool) -> fossapi::Result<()> 
 
     let server = FossaServer::new(client.clone());
     let transport = rmcp::transport::stdio();
-    let service = server.serve(transport).await.map_err(|e| {
-        fossapi::FossaError::ConfigMissing(format!("MCP transport error: {e}"))
-    })?;
+    let service = server
+        .serve(transport)
+        .await
+        .map_err(|e| fossapi::FossaError::ConfigMissing(format!("MCP transport error: {e}")))?;
 
-    service.waiting().await.map_err(|e| {
-        fossapi::FossaError::ConfigMissing(format!("MCP service error: {e}"))
-    })?;
+    service
+        .waiting()
+        .await
+        .map_err(|e| fossapi::FossaError::ConfigMissing(format!("MCP service error: {e}")))?;
 
     Ok(())
 }
@@ -268,7 +282,10 @@ where
         println!("{}", Table::new(rows));
         if let Some(total) = page.total {
             let total_pages = (total + page.count as u64 - 1) / page.count.max(1) as u64;
-            println!("\nPage {}/{} ({} total items)", page.page, total_pages, total);
+            println!(
+                "\nPage {}/{} ({} total items)",
+                page.page, total_pages, total
+            );
         } else if page.has_more {
             println!("\nPage {} (more available)", page.page);
         } else {

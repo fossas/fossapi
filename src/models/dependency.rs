@@ -74,7 +74,8 @@ mod tests {
             "scoped": {"licenses": ["MIT"], "lastEditedBy": "user@example.com"},
             "base": {"licenses": ["MIT"], "justification": "Confirmed"}
         }"#;
-        let concluded: ConcludedLicenses = serde_json::from_str(json).expect("Failed to deserialize");
+        let concluded: ConcludedLicenses =
+            serde_json::from_str(json).expect("Failed to deserialize");
         assert!(concluded.scoped.is_some());
         assert!(concluded.base.is_some());
         assert_eq!(concluded.scoped.as_ref().unwrap().licenses, vec!["MIT"]);
@@ -84,7 +85,8 @@ mod tests {
     #[test]
     fn test_concluded_licenses_empty() {
         let json = r#"{}"#;
-        let concluded: ConcludedLicenses = serde_json::from_str(json).expect("Failed to deserialize");
+        let concluded: ConcludedLicenses =
+            serde_json::from_str(json).expect("Failed to deserialize");
         assert!(concluded.scoped.is_none());
         assert!(concluded.base.is_none());
     }
@@ -100,10 +102,7 @@ mod tests {
         let root: DependencyRootProject =
             serde_json::from_str(json).expect("Failed to deserialize");
         assert_eq!(root.title.as_deref(), Some("my-project"));
-        assert_eq!(
-            root.revision.as_deref(),
-            Some("custom+org/my-project$main")
-        );
+        assert_eq!(root.revision.as_deref(), Some("custom+org/my-project$main"));
         assert_eq!(root.branch.as_deref(), Some("main"));
         assert!(root.conclusions.is_some());
     }

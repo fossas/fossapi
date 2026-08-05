@@ -15,9 +15,8 @@ use std::sync::Arc;
 
 use crate::{
     mcp::{EntityType, GetParams, ListParams, SnippetMatchParams, UpdateParams},
-    DependencyListQuery, FossaClient, FossaError, Get, Issue, IssueListQuery, List,
-    Project, ProjectListQuery, ProjectUpdateParams, Revision, RevisionListQuery, SnippetListQuery,
-    Update,
+    DependencyListQuery, FossaClient, FossaError, Get, Issue, IssueListQuery, List, Project,
+    ProjectListQuery, ProjectUpdateParams, Revision, RevisionListQuery, SnippetListQuery, Update,
 };
 
 /// FOSSA MCP Server.
@@ -108,10 +107,7 @@ impl FossaServer {
     /// - Entity type is `Dependency` (not supported for get)
     /// - Issue ID is not a valid number
     /// - The underlying API call fails
-    pub async fn handle_get(
-        &self,
-        params: GetParams,
-    ) -> Result<CallToolResult, McpError> {
+    pub async fn handle_get(&self, params: GetParams) -> Result<CallToolResult, McpError> {
         let result = match params.entity {
             EntityType::Project => {
                 let project = Project::get(&self.client, params.id)
@@ -252,10 +248,14 @@ impl FossaServer {
         &self,
         params: SnippetMatchParams,
     ) -> Result<CallToolResult, McpError> {
-        let details =
-            crate::get_snippet_match(&self.client, &params.revision, &params.snippet, &params.path)
-                .await
-                .map_err(Self::to_mcp_error)?;
+        let details = crate::get_snippet_match(
+            &self.client,
+            &params.revision,
+            &params.snippet,
+            &params.path,
+        )
+        .await
+        .map_err(Self::to_mcp_error)?;
         let result = serde_json::to_string_pretty(&details)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(result)]))
@@ -575,7 +575,9 @@ mod tests {
         });
 
         Mock::given(method("GET"))
-            .and(path("/v2/revisions/custom%2Borg%2Frepo%24abc123/dependencies"))
+            .and(path(
+                "/v2/revisions/custom%2Borg%2Frepo%24abc123/dependencies",
+            ))
             .respond_with(ResponseTemplate::new(200).set_body_json(&response))
             .expect(1)
             .mount(&mock_server)
@@ -672,8 +674,8 @@ mod tests {
         let params = ListParams {
             entity: EntityType::Project,
             parent: None,
-            page: None,   // Should default to 1
-            count: None,  // Should default to 20
+            page: None,  // Should default to 1
+            count: None, // Should default to 20
             category: None,
             path: None,
             with_lines: None,
@@ -692,7 +694,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/v2/projects"))
             .and(query_param("page", "1"))
-            .and(query_param("count", "100"))  // Capped from 200
+            .and(query_param("count", "100")) // Capped from 200
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "projects": [],
                 "total": 0
@@ -708,7 +710,7 @@ mod tests {
             entity: EntityType::Project,
             parent: None,
             page: Some(1),
-            count: Some(200),  // Should be capped to 100
+            count: Some(200), // Should be capped to 100
             category: None,
             path: None,
             with_lines: None,
@@ -750,7 +752,10 @@ mod tests {
             category: None,
         };
 
-        let result = server.handle_get(params).await.expect("handle_get should succeed");
+        let result = server
+            .handle_get(params)
+            .await
+            .expect("handle_get should succeed");
 
         assert!(!result.is_error.unwrap_or(false));
         let content = &result.content[0];
@@ -788,7 +793,10 @@ mod tests {
             category: None,
         };
 
-        let result = server.handle_get(params).await.expect("handle_get should succeed");
+        let result = server
+            .handle_get(params)
+            .await
+            .expect("handle_get should succeed");
 
         assert!(!result.is_error.unwrap_or(false));
         let content = &result.content[0];
@@ -832,7 +840,10 @@ mod tests {
             category: Some(IssueCategory::Vulnerability),
         };
 
-        let result = server.handle_get(params).await.expect("handle_get should succeed");
+        let result = server
+            .handle_get(params)
+            .await
+            .expect("handle_get should succeed");
 
         assert!(!result.is_error.unwrap_or(false));
         let content = &result.content[0];
@@ -878,11 +889,10 @@ mod tests {
         let result = server.handle_get(params).await;
 
         let err = result.expect_err("get dependency should fail");
-        let err_msg = format!("{:?}", err);
+        let err_msg = format!("{err:?}");
         assert!(
             err_msg.contains("does not support get") || err_msg.contains("list with a parent"),
-            "Error should mention dependency doesn't support get: {}",
-            err_msg
+            "Error should mention dependency doesn't support get: {err_msg}"
         );
     }
 
@@ -900,11 +910,10 @@ mod tests {
         let result = server.handle_get(params).await;
 
         let err = result.expect_err("get issue with invalid ID should fail");
-        let err_msg = format!("{:?}", err);
+        let err_msg = format!("{err:?}");
         assert!(
             err_msg.contains("must be a number"),
-            "Error should mention issue ID must be numeric: {}",
-            err_msg
+            "Error should mention issue ID must be numeric: {err_msg}"
         );
     }
 
