@@ -128,14 +128,14 @@ impl FossaServer {
         }
     }
 
-    /// Append a migration hint when failed args look like the pre-0.4 shape
-    /// (generic `parent` field / string `id`). Remove at 1.0.
+    /// Append a migration hint when failed args look like the legacy (pre-0.3
+    /// unification) shape: generic `parent` field / string `id`. Remove at 1.0.
     fn describe_args_error(err: serde_json::Error, args: &serde_json::Value) -> McpError {
         let legacy = args.get("parent").is_some()
             || matches!(args.get("id"), Some(serde_json::Value::String(_)));
         let msg = if legacy {
             format!(
-                "{err} — note: arg shapes changed in 0.4.0: per-entity fields \
+                "{err} — note: the MCP arg shapes changed: per-entity fields \
                  replace the generic `parent`/string `id` (see the README's \
                  migration notes, or re-read this tool's input schema)"
             )
@@ -842,7 +842,7 @@ mod tests {
         assert!(err.message.contains("at least one field"), "{err:?}");
     }
 
-    /// Test: pre-0.4 arg shapes get a migration hint appended to the error.
+    /// Test: legacy arg shapes get a migration hint appended to the error.
     #[tokio::test]
     async fn call_tool_legacy_args_get_migration_hint() {
         let err = FossaServer::describe_args_error(

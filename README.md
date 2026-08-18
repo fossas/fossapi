@@ -177,10 +177,10 @@ clamped to at least 1 and `count` to at most 100). `snippet_locations` pages
 over the underlying snippets, so one page can hold more or fewer rows than
 `count`.
 
-### Migrating to 0.4
+### Migrating to the unified surface
 
-0.4.0 changed the MCP arg shapes (breaking for saved call configs; live
-clients pick the new shapes up automatically from `tools/list`):
+The CLI/MCP unification changed the MCP arg shapes (breaking for saved call
+configs; live clients pick the new shapes up automatically from `tools/list`):
 
 - Per-entity fields replace the old generic `parent`/string `id` — e.g.
   `get {"entity": "issue", "id": 12345}` (numeric id),
