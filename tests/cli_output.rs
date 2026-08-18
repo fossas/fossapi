@@ -4,7 +4,7 @@
 //! - JSON output with --json flag
 //! - Pretty-print output as default
 
-use fossapi::{Issue, Project, PrettyPrint, Revision};
+use fossapi::{Issue, PrettyPrint, Project, Revision};
 
 // ============================================================================
 // JSON Output Tests

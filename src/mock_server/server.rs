@@ -57,13 +57,11 @@ impl MockServer {
         let addr = listener.local_addr().expect("Failed to get local address");
 
         let handle = tokio::spawn(async move {
-            axum::serve(listener, app)
-                .await
-                .expect("Server error");
+            axum::serve(listener, app).await.expect("Server error");
         });
 
         Self {
-            url: format!("http://{}", addr),
+            url: format!("http://{addr}"),
             handle,
             state: shared_state,
         }

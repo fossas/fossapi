@@ -40,15 +40,13 @@ async fn test_get_calls_trait_method() {
 
     Mock::given(method("GET"))
         .and(path("/projects/custom%2B123%2Ftest"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "id": "custom+123/test",
-                "title": "Test",
-                "public": false,
-                "labels": [],
-                "teams": []
-            })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "custom+123/test",
+            "title": "Test",
+            "public": false,
+            "labels": [],
+            "teams": []
+        })))
         .expect(1) // Verify the trait method was called exactly once
         .mount(&mock_server)
         .await;

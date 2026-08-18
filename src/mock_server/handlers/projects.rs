@@ -83,7 +83,10 @@ pub async fn list_projects(
     let end = (start + count as usize).min(all_projects.len());
 
     let projects: Vec<Project> = if start < all_projects.len() {
-        all_projects[start..end].iter().map(|p| (*p).clone()).collect()
+        all_projects[start..end]
+            .iter()
+            .map(|p| (*p).clone())
+            .collect()
     } else {
         vec![]
     };

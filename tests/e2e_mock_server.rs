@@ -44,7 +44,7 @@ async fn test_server_shutdown_is_clean() {
 
     // After shutdown, server should not respond
     let client = reqwest::Client::new();
-    let result = client.get(format!("{}/health", url)).send().await;
+    let result = client.get(format!("{url}/health")).send().await;
 
     assert!(result.is_err());
 }
@@ -125,11 +125,10 @@ async fn test_project_not_found() {
 
     assert!(result.is_err());
     let err = result.unwrap_err();
-    let err_str = format!("{:?}", err);
+    let err_str = format!("{err:?}");
     assert!(
         err_str.contains("not found") || err_str.contains("404"),
-        "Error should indicate not found: {}",
-        err_str
+        "Error should indicate not found: {err_str}"
     );
 
     server.shutdown().await;
@@ -238,7 +237,10 @@ async fn test_issues_have_correct_types() {
     }
 
     for issue in &licenses.items {
-        assert!(issue.license.is_some(), "Licensing issue should have license");
+        assert!(
+            issue.license.is_some(),
+            "Licensing issue should have license"
+        );
     }
 
     server.shutdown().await;
@@ -304,7 +306,10 @@ async fn test_full_project_analysis_workflow() {
 #[tokio::test]
 async fn test_custom_state_with_multiple_projects() {
     let state = MockState::new()
-        .with_project(Fixtures::minimal_project("custom+org/alpha", "Alpha Project"))
+        .with_project(Fixtures::minimal_project(
+            "custom+org/alpha",
+            "Alpha Project",
+        ))
         .with_project(Fixtures::minimal_project("custom+org/beta", "Beta Project"))
         .with_project(Fixtures::project_with_issues(
             "custom+org/gamma",

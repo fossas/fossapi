@@ -15,8 +15,6 @@
 //! # }
 //! ```
 
-mod params;
 mod server;
 
-pub use params::*;
 pub use server::FossaServer;

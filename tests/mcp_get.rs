@@ -1,25 +1,29 @@
-//! Tests for MCP get tool handler.
+//! Tests for the MCP get tool.
 //!
-//! Uses wiremock to mock the FOSSA API and test the MCP get tool dispatch.
+//! Uses wiremock to mock the FOSSA API. Tool arguments are deserialized into
+//! the shared `fossapi::ops::GetCommand`, exactly as `call_tool` does, so
+//! these tests also cover the JSON wire format.
 
-use fossapi::mcp::{EntityType, FossaServer, GetParams};
-use fossapi::{FossaClient, IssueCategory};
+use fossapi::mcp::FossaServer;
+use fossapi::ops::GetCommand;
+use fossapi::FossaClient;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-/// Helper to build GetParams.
-fn get_params(entity: EntityType, id: &str, category: Option<IssueCategory>) -> GetParams {
-    GetParams {
-        entity,
-        id: id.to_string(),
-        category,
-    }
+/// Deserialize tool arguments the same way call_tool does.
+fn get_command(args: serde_json::Value) -> serde_json::Result<GetCommand> {
+    serde_json::from_value(args)
 }
 
 /// Extract text from CallToolResult content.
 fn extract_text(result: &rmcp::model::CallToolResult) -> &str {
     let content = &result.content[0];
-    content.raw.as_text().expect("Expected text content").text.as_str()
+    content
+        .raw
+        .as_text()
+        .expect("Expected text content")
+        .text
+        .as_str()
 }
 
 #[tokio::test]
@@ -44,8 +48,13 @@ async fn test_mcp_get_project_returns_json() {
     let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
     let server = FossaServer::new(client);
 
+    let command = get_command(serde_json::json!({
+        "entity": "project",
+        "locator": "custom+123/test-project"
+    }))
+    .unwrap();
     let result = server
-        .handle_get(get_params(EntityType::Project, "custom+123/test-project", None))
+        .handle_get(command)
         .await
         .expect("handle_get should succeed");
 
@@ -75,8 +84,13 @@ async fn test_mcp_get_revision_returns_json() {
     let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
     let server = FossaServer::new(client);
 
+    let command = get_command(serde_json::json!({
+        "entity": "revision",
+        "locator": "custom+123/test$main"
+    }))
+    .unwrap();
     let result = server
-        .handle_get(get_params(EntityType::Revision, "custom+123/test$main", None))
+        .handle_get(command)
         .await
         .expect("handle_get should succeed");
 
@@ -112,8 +126,14 @@ async fn test_mcp_get_issue_returns_json() {
     let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
     let server = FossaServer::new(client);
 
+    let command = get_command(serde_json::json!({
+        "entity": "issue",
+        "id": 12345,
+        "category": "vulnerability"
+    }))
+    .unwrap();
     let result = server
-        .handle_get(get_params(EntityType::Issue, "12345", Some(IssueCategory::Vulnerability)))
+        .handle_get(command)
         .await
         .expect("handle_get should succeed");
 
@@ -124,66 +144,79 @@ async fn test_mcp_get_issue_returns_json() {
     assert!(text.contains("CVE-2024-0001"));
 }
 
-#[tokio::test]
-async fn test_mcp_get_dependency_returns_error() {
-    let mock_server = MockServer::start().await;
-
-    // No mock needed - dependency get should fail before making HTTP request
-    let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
-    let server = FossaServer::new(client);
-
-    let result = server
-        .handle_get(get_params(EntityType::Dependency, "npm+lodash$4.17.21", None))
-        .await;
-
-    // Should return an error, not a success
-    let err = result.expect_err("get dependency should fail");
-    let err_msg = format!("{:?}", err);
+/// `dependency` is not a get entity; the schema/deserializer rejects it
+/// before any handler runs.
+#[test]
+fn test_mcp_get_dependency_is_rejected_at_deserialization() {
+    let err = get_command(serde_json::json!({
+        "entity": "dependency",
+        "locator": "npm+lodash$4.17.21"
+    }))
+    .unwrap_err();
     assert!(
-        err_msg.contains("does not support get") || err_msg.contains("list with a parent"),
-        "Error should mention dependency doesn't support get: {}",
-        err_msg
+        err.to_string().contains("unknown variant `dependency`"),
+        "Error should mention the unknown entity variant: {err}"
     );
 }
 
-#[tokio::test]
-async fn test_mcp_get_issue_with_invalid_id_returns_error() {
-    let mock_server = MockServer::start().await;
-
-    // No mock needed - parsing should fail before HTTP request
-    let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
-    let server = FossaServer::new(client);
-
-    let result = server
-        .handle_get(get_params(EntityType::Issue, "not-a-number", Some(IssueCategory::Vulnerability)))
-        .await;
-
-    let err = result.expect_err("get issue with invalid ID should fail");
-    let err_msg = format!("{:?}", err);
+/// A non-numeric issue id is rejected at deserialization, matching the CLI
+/// where the id parses as u64.
+#[test]
+fn test_mcp_get_issue_with_invalid_id_is_rejected_at_deserialization() {
+    let err = get_command(serde_json::json!({
+        "entity": "issue",
+        "id": "not-a-number",
+        "category": "vulnerability"
+    }))
+    .unwrap_err();
     assert!(
-        err_msg.contains("must be a number"),
-        "Error should mention issue ID must be numeric: {}",
-        err_msg
+        err.to_string().contains("invalid type: string") && err.to_string().contains("u64"),
+        "Error should name the type mismatch (string where u64 expected): {err}"
     );
 }
 
-#[tokio::test]
-async fn test_mcp_get_issue_without_category_returns_error() {
-    let mock_server = MockServer::start().await;
+/// The snippet wire format deserializes with its per-entity fields intact.
+#[test]
+fn test_mcp_get_snippet_wire_format_deserializes() {
+    let command = get_command(serde_json::json!({
+        "entity": "snippet",
+        "revision": "custom+123/test$main",
+        "snippet": "55"
+    }))
+    .unwrap();
+    let GetCommand::Snippet(p) = command else {
+        panic!("expected Snippet variant");
+    };
+    assert_eq!(p.revision, "custom+123/test$main");
+    assert_eq!(p.snippet, "55");
+}
 
-    // No mock needed - should fail before HTTP request
-    let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
-    let server = FossaServer::new(client);
+/// The snippet_match wire format deserializes with its per-entity fields intact.
+#[test]
+fn test_mcp_get_snippet_match_wire_format_deserializes() {
+    let command = get_command(serde_json::json!({
+        "entity": "snippet_match",
+        "revision": "custom+123/test$main",
+        "snippet": "55",
+        "path": "/src/a.rs"
+    }))
+    .unwrap();
+    let GetCommand::SnippetMatch(p) = command else {
+        panic!("expected SnippetMatch variant");
+    };
+    assert_eq!(p.revision, "custom+123/test$main");
+    assert_eq!(p.snippet, "55");
+    assert_eq!(p.path, "/src/a.rs");
+}
 
-    let result = server
-        .handle_get(get_params(EntityType::Issue, "12345", None))
-        .await;
-
-    let err = result.expect_err("get issue without category should fail");
-    let err_msg = format!("{:?}", err);
-    assert!(
-        err_msg.to_lowercase().contains("category"),
-        "Error should mention category is required: {}",
-        err_msg
-    );
+/// Category is optional for get issue: omitting it probes every category,
+/// matching the CLI's behavior.
+#[test]
+fn test_mcp_get_issue_without_category_deserializes() {
+    let command = get_command(serde_json::json!({
+        "entity": "issue",
+        "id": 12345
+    }))
+    .unwrap();
+    assert!(matches!(command, GetCommand::Issue(p) if p.id == 12345 && p.category.is_none()));
 }

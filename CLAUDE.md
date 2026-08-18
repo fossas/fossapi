@@ -136,6 +136,26 @@ Project (top-level container)
 | `List` | Paginated listing | `Project::list_page(&client, query, page, count)` |
 | `Update` | Modify entity | `Project::update(&client, locator, params)` |
 
+## CLI/MCP parity (`src/ops/`)
+
+The CLI and the MCP server are thin adapters over shared operation
+declarations in `src/ops/`: one enum per verb (`GetCommand`, `ListCommand`,
+`UpdateCommand`) deriving `clap::Subcommand` **and** `Deserialize`/`JsonSchema`
+(internally tagged on `entity`), with one param struct per entity deriving
+`clap::Args` + `Deserialize` + `JsonSchema`. Doc comments become both clap
+help and MCP schema descriptions.
+
+To add an operation: add a param struct, an enum variant, a match arm in the
+verb's `run_*` fn, and an output-enum variant. Both surfaces pick it up with
+no surface-specific code; a missing arm is a compile error. `tests/parity.rs`
+guards the rest (tool list == verbs, clap subcommands == schema entities,
+clap args == schema properties) — never add a `#[serde(skip)]`/`#[clap(skip)]`
+to these types without checking it. Pagination policy — defaults plus the
+global clamp (page ≥ 1, 1 ≤ count ≤ 100) — lives only in `PageArgs::resolve`.
+Per-endpoint bounds (issues min count 5, snippet pageSize ≤ 50) are enforced
+by the API/model layer today; encoding them into the declarations so schemas
+advertise them is issue #41.
+
 ## Models
 
 - **Project** - Top-level container, implements Get/List/Update

@@ -111,7 +111,10 @@ pub async fn list_issues(
     let end = (start + count as usize).min(all_issues.len());
 
     let issues: Vec<Issue> = if start < all_issues.len() {
-        all_issues[start..end].iter().map(|i| (*i).clone()).collect()
+        all_issues[start..end]
+            .iter()
+            .map(|i| (*i).clone())
+            .collect()
     } else {
         vec![]
     };

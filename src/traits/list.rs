@@ -83,10 +83,7 @@ pub trait List: Sized + Send {
 
             // Safety limit to prevent infinite loops
             if page > MAX_PAGES {
-                tracing::warn!(
-                    "Reached pagination limit of {} pages, stopping",
-                    MAX_PAGES
-                );
+                tracing::warn!("Reached pagination limit of {} pages, stopping", MAX_PAGES);
                 break;
             }
         }

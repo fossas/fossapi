@@ -241,13 +241,17 @@ impl List for Revision {
             .collect();
 
         // Sort by created_at descending (newest first)
-        all_revisions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        all_revisions.sort_by_key(|r| std::cmp::Reverse(r.created_at));
 
         let total = all_revisions.len() as u64;
 
         // Apply client-side pagination
         let start = ((page - 1) * count) as usize;
-        let items: Vec<Revision> = all_revisions.into_iter().skip(start).take(count as usize).collect();
+        let items: Vec<Revision> = all_revisions
+            .into_iter()
+            .skip(start)
+            .take(count as usize)
+            .collect();
 
         Ok(Page::new(items, page, count, Some(total)))
     }
