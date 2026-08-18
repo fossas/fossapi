@@ -84,10 +84,7 @@ pub async fn list_revisions(
             .unwrap_or("unknown")
             .to_string();
 
-        branches
-            .entry(branch)
-            .or_default()
-            .push(revision.clone());
+        branches.entry(branch).or_default().push(revision.clone());
     }
 
     (StatusCode::OK, Json(ListRevisionsResponse { branches }))

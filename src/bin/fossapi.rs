@@ -1,14 +1,14 @@
 //! FOSSA API CLI binary.
 //!
-//! A command-line interface for interacting with the FOSSA API.
+//! A command-line interface for interacting with the FOSSA API. Argument
+//! parsing and dispatch go through the shared operation declarations in
+//! `fossapi::ops`, which the MCP server also consumes; this file only owns
+//! presentation (tables and JSON printing).
 
 use clap::Parser;
-use fossapi::cli::{Cli, Command, Entity, GetCommand, ListCommand, UpdateArgs};
-use fossapi::{
-    get_dependencies, FossaClient, Get, Issue, IssueAction, IssueListQuery, IssueUpdateParams,
-    List, Page, PrettyPrint, Project, ProjectUpdateParams, Revision, Snippet, SnippetListQuery,
-    SnippetLocation, SnippetPath, Update,
-};
+use fossapi::cli::{Cli, Command};
+use fossapi::ops::{run_get, run_list, run_update, ListOutput};
+use fossapi::{FossaClient, Page, PrettyPrint, Project, Snippet, SnippetLocation, SnippetPath};
 use serde::Serialize;
 use std::process::ExitCode;
 use tabled::{Table, Tabled};
@@ -37,215 +37,20 @@ async fn main() -> ExitCode {
 
 async fn run(client: &FossaClient, cli: Cli) -> fossapi::Result<()> {
     match cli.command {
-        Command::Get { command } => handle_get(client, command, cli.json).await,
-        Command::List { command } => handle_list(client, command, cli.json).await,
-        Command::Update {
-            entity,
-            locator,
-            args,
-        } => handle_update(client, entity, &locator, args, cli.json).await,
+        Command::Get { command } => {
+            let output = run_get(client, command).await?;
+            output_single(&output, cli.json)
+        }
+        Command::List { command } => {
+            let output = run_list(client, command).await?;
+            output_list(&output, cli.json)
+        }
+        Command::Update { command } => {
+            let output = run_update(client, command).await?;
+            output_single(&output, cli.json)
+        }
         Command::Mcp { verbose } => handle_mcp(client, verbose).await,
     }
-}
-
-async fn handle_get(
-    client: &FossaClient,
-    command: GetCommand,
-    json: bool,
-) -> fossapi::Result<()> {
-    match command {
-        GetCommand::Project { locator } => {
-            let project = Project::get(client, locator).await?;
-            output_single(&project, json)?;
-        }
-        GetCommand::Revision { locator } => {
-            let revision = Revision::get(client, locator).await?;
-            output_single(&revision, json)?;
-        }
-        GetCommand::Issue { id, category } => {
-            let issue = match category {
-                Some(category) => Issue::get_with_category(client, id, category).await?,
-                None => Issue::get(client, id).await?,
-            };
-            output_single(&issue, json)?;
-        }
-        GetCommand::Snippet { revision, snippet } => {
-            let details = fossapi::get_snippet_details(client, &revision, &snippet).await?;
-            output_single(&details, json)?;
-        }
-        GetCommand::SnippetMatch {
-            revision,
-            snippet,
-            path,
-        } => {
-            let details = fossapi::get_snippet_match(client, &revision, &snippet, &path).await?;
-            output_single(&details, json)?;
-        }
-    }
-    Ok(())
-}
-
-async fn handle_list(
-    client: &FossaClient,
-    command: ListCommand,
-    json: bool,
-) -> fossapi::Result<()> {
-    match command {
-        ListCommand::Projects { page, count } => {
-            let page = page.unwrap_or(1);
-            let count = count.unwrap_or(20);
-            let projects = Project::list_page(client, &Default::default(), page, count).await?;
-            output_page(&projects, json, |p| ProjectRow::from(p))?;
-        }
-        ListCommand::Issues {
-            page,
-            count,
-            category,
-        } => {
-            let page = page.unwrap_or(1);
-            let count = count.unwrap_or(20);
-            let query = IssueListQuery {
-                category: Some(category),
-                ..Default::default()
-            };
-            let issues = Issue::list_page(client, &query, page, count).await?;
-            output_page(&issues, json, |i| IssueRow::from(i))?;
-        }
-        ListCommand::Dependencies { revision, revision_positional } => {
-            let revision = revision.or(revision_positional).expect("revision is required");
-            let deps = get_dependencies(client, &revision, Default::default()).await?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&deps)?);
-            } else {
-                let rows: Vec<DependencyRow> = deps.iter().map(DependencyRow::from).collect();
-                println!("{}", Table::new(rows));
-            }
-        }
-        ListCommand::Revisions {
-            project,
-            page,
-            count,
-        } => {
-            let page = page.unwrap_or(1);
-            let count = count.unwrap_or(20);
-            let revisions =
-                fossapi::get_revisions(client, &project, Default::default()).await?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&revisions)?);
-            } else {
-                let rows: Vec<RevisionRow> = revisions.iter().map(RevisionRow::from).collect();
-                println!("{}", Table::new(rows));
-                println!("\n{} revisions for {}", revisions.len(), project);
-            }
-            let _ = (page, count);
-        }
-        ListCommand::Snippets {
-            revision,
-            path,
-            page,
-            count,
-        } => {
-            let query = SnippetListQuery {
-                path,
-                ..Default::default()
-            };
-            let page = page.unwrap_or(1);
-            let count = count.unwrap_or(20);
-            let snippets = fossapi::get_snippets_page(client, &revision, query, page, count).await?;
-            output_page(&snippets, json, |s| SnippetRow::from(s))?;
-        }
-        ListCommand::SnippetLocations {
-            revision,
-            path,
-            with_lines,
-        } => {
-            let query = SnippetListQuery {
-                path,
-                ..Default::default()
-            };
-            let locations =
-                fossapi::get_snippet_locations(client, &revision, query, with_lines).await?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&locations)?);
-            } else {
-                let rows: Vec<SnippetLocationRow> =
-                    locations.iter().map(SnippetLocationRow::from).collect();
-                println!("{}", Table::new(rows));
-                println!("\n{} match location(s)", locations.len());
-            }
-        }
-        ListCommand::SnippetPaths { revision, path } => {
-            let query = SnippetListQuery {
-                path,
-                ..Default::default()
-            };
-            let paths = fossapi::get_snippet_paths(client, &revision, query).await?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&paths)?);
-            } else {
-                let rows: Vec<SnippetPathRow> = paths.iter().map(SnippetPathRow::from).collect();
-                println!("{}", Table::new(rows));
-            }
-        }
-    }
-    Ok(())
-}
-
-async fn handle_update(
-    client: &FossaClient,
-    entity: Entity,
-    locator: &str,
-    args: UpdateArgs,
-    json: bool,
-) -> fossapi::Result<()> {
-    match entity {
-        Entity::Project => {
-            let params = ProjectUpdateParams {
-                title: args.title,
-                description: args.description,
-                public: args.public,
-                ..Default::default()
-            };
-            let project = Project::update(client, locator.to_string(), params).await?;
-            output_single(&project, json)?;
-        }
-        Entity::Issue => {
-            let id: u64 = locator.parse().map_err(|_| {
-                fossapi::FossaError::InvalidLocator(format!(
-                    "issue updates take the numeric issue ID, got: {locator}"
-                ))
-            })?;
-            let Some(category) = args.category else {
-                eprintln!("Error: --category is required when updating an issue");
-                return Err(fossapi::FossaError::InvalidLocator(
-                    "--category is required for issue updates".to_string(),
-                ));
-            };
-            let action = if args.ignore {
-                IssueAction::Ignore {
-                    notes: args.notes,
-                    reason: args.reason,
-                }
-            } else if args.unignore {
-                IssueAction::Unignore
-            } else {
-                eprintln!("Error: pass --ignore or --unignore to update an issue");
-                return Err(fossapi::FossaError::InvalidLocator(
-                    "issue updates require --ignore or --unignore".to_string(),
-                ));
-            };
-            let issue =
-                Issue::update(client, id, IssueUpdateParams { category, action }).await?;
-            output_single(&issue, json)?;
-        }
-        _ => {
-            eprintln!("Error: Only projects and issues can be updated via CLI");
-            return Err(fossapi::FossaError::InvalidLocator(
-                "only projects and issues support update".to_string(),
-            ));
-        }
-    }
-    Ok(())
 }
 
 async fn handle_mcp(client: &FossaClient, verbose: bool) -> fossapi::Result<()> {
@@ -261,13 +66,15 @@ async fn handle_mcp(client: &FossaClient, verbose: bool) -> fossapi::Result<()> 
 
     let server = FossaServer::new(client.clone());
     let transport = rmcp::transport::stdio();
-    let service = server.serve(transport).await.map_err(|e| {
-        fossapi::FossaError::ConfigMissing(format!("MCP transport error: {e}"))
-    })?;
+    let service = server
+        .serve(transport)
+        .await
+        .map_err(|e| fossapi::FossaError::ConfigMissing(format!("MCP transport error: {e}")))?;
 
-    service.waiting().await.map_err(|e| {
-        fossapi::FossaError::ConfigMissing(format!("MCP service error: {e}"))
-    })?;
+    service
+        .waiting()
+        .await
+        .map_err(|e| fossapi::FossaError::ConfigMissing(format!("MCP service error: {e}")))?;
 
     Ok(())
 }
@@ -281,6 +88,29 @@ fn output_single<T: Serialize + PrettyPrint>(item: &T, json: bool) -> fossapi::R
     Ok(())
 }
 
+fn output_list(output: &ListOutput, json: bool) -> fossapi::Result<()> {
+    match output {
+        ListOutput::Projects(page) => output_page(page, json, |p| ProjectRow::from(p)),
+        ListOutput::Issues(page) => output_page(page, json, |i| IssueRow::from(i)),
+        ListOutput::Dependencies(page) => output_page(page, json, |d| DependencyRow::from(d)),
+        ListOutput::Revisions(page) => output_page(page, json, |r| RevisionRow::from(r)),
+        ListOutput::Snippets(page) => output_page(page, json, |s| SnippetRow::from(s)),
+        // Page numbers/totals count the underlying snippets, not the rows.
+        ListOutput::SnippetLocations(page) => {
+            output_page(page, json, |l| SnippetLocationRow::from(l))
+        }
+        ListOutput::SnippetPaths(paths) => {
+            if json {
+                println!("{}", serde_json::to_string_pretty(paths)?);
+            } else {
+                let rows: Vec<SnippetPathRow> = paths.iter().map(SnippetPathRow::from).collect();
+                println!("{}", Table::new(rows));
+            }
+            Ok(())
+        }
+    }
+}
+
 fn output_page<T, R, F>(page: &Page<T>, json: bool, to_row: F) -> fossapi::Result<()>
 where
     T: Serialize,
@@ -290,11 +120,14 @@ where
     if json {
         println!("{}", serde_json::to_string_pretty(&page.items)?);
     } else {
-        let rows: Vec<R> = page.items.iter().map(to_row).collect();
+        let rows: Vec<R> = page.items.iter().map(&to_row).collect();
         println!("{}", Table::new(rows));
         if let Some(total) = page.total {
-            let total_pages = (total + page.count as u64 - 1) / page.count.max(1) as u64;
-            println!("\nPage {}/{} ({} total items)", page.page, total_pages, total);
+            let total_pages = total.div_ceil(page.count.max(1) as u64);
+            println!(
+                "\nPage {}/{} ({} total items)",
+                page.page, total_pages, total
+            );
         } else if page.has_more {
             println!("\nPage {} (more available)", page.page);
         } else {
@@ -336,8 +169,8 @@ struct IssueRow {
     source: String,
 }
 
-impl From<&Issue> for IssueRow {
-    fn from(i: &Issue) -> Self {
+impl From<&fossapi::Issue> for IssueRow {
+    fn from(i: &fossapi::Issue) -> Self {
         Self {
             id: i.id,
             issue_type: i.issue_type.clone(),

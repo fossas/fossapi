@@ -111,7 +111,10 @@ pub async fn list_issues(
     let end = (start + count as usize).min(all_issues.len());
 
     let issues: Vec<Issue> = if start < all_issues.len() {
-        all_issues[start..end].iter().map(|i| (*i).clone()).collect()
+        all_issues[start..end]
+            .iter()
+            .map(|i| (*i).clone())
+            .collect()
     } else {
         vec![]
     };
@@ -121,28 +124,26 @@ pub async fn list_issues(
 
 /// PUT /v2/issues/
 ///
-/// Mirrors the real API's shape: targets come from the query string
-/// (`category`, `status` filter, `ids[]`), the action from the JSON body
+/// Mirrors the real API's by-ID semantics: targets come from the query string
+/// (`category` required, `ids[]`), the action from the JSON body
 /// (`{"type": "ignore", "notes": ..., "reason": ...}` or
-/// `{"type": "unignore"}`). Responds `{count, issueId?}`, where `issueId` is
-/// only present when exactly one issue changed and `count: 0` signals that
-/// nothing matched.
+/// `{"type": "unignore"}`). Like core, the by-ID path is an unguarded upsert:
+/// the `status` query param is ignored, re-ignoring an ignored issue succeeds
+/// (server-side it overwrites notes/reason), and unignoring an active issue
+/// succeeds as a rewrite. Responds `{count, issueId?}` — `issueId` only when
+/// exactly one issue matched; `count: 0` only when no target was found.
 pub async fn update_issues(
     State(state): State<Arc<RwLock<MockState>>>,
     Query(params): Query<Vec<(String, String)>>,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let find = |key: &str| {
-        params
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.as_str())
-    };
-
-    let Some(category) = find("category") else {
+    let category = params
+        .iter()
+        .find(|(k, _)| k == "category")
+        .map(|(_, v)| v.clone());
+    let Some(category) = category else {
         return missing_category();
     };
-    let status_filter = find("status").unwrap_or("active");
     let ids: Vec<u64> = params
         .iter()
         .filter(|(k, _)| k == "ids[]" || k == "ids")
@@ -173,14 +174,6 @@ pub async fn update_issues(
             continue;
         };
         if issue.issue_type != category {
-            continue;
-        }
-        let matches_filter = match status_filter {
-            "active" => issue.statuses.active > 0,
-            "ignored" => issue.statuses.ignored > 0,
-            _ => true,
-        };
-        if !matches_filter {
             continue;
         }
         let total = issue.statuses.active + issue.statuses.ignored;

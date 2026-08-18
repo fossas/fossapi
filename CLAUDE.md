@@ -123,7 +123,7 @@ Project (top-level container)
 | Dependencies | `GET /v2/revisions/{locator}/dependencies` | For a revision |
 | Issues | `GET /v2/issues` | `category` **required**; `count` clamps to a minimum of 5 |
 | Issue | `GET /v2/issues/{id}` | Single issue with full details |
-| Issue actions | `PUT /v2/issues/` | Ignore/unignore. Targets in the query (`category` required, `ids[]`, `status` filter), action in the body (`{type, notes?, reason?}`). Responds `{count, issueId?}`; `count: 0` = nothing matched (we surface it as an error). Full token only — push-only tokens can't write issues; missing resolve permission is a **400**, not 403 |
+| Issue actions | `PUT /v2/issues/` | Ignore/unignore. Targets in the query (`category` required, `ids[]`), action in the body (`{type, notes?, reason?}`). By ID the server is an **unguarded upsert**: the `status` query param is silently ignored, and re-ignoring overwrites notes/reason and resets the ignored-at timestamp — which is why we guard client-side (see ADR 0002). Responds `{count, issueId?}` (`issueId` only when count==1); `count: 0` = target not visible to the token. Full token only — push-only tokens can't write issues; missing resolve permission is a **400**, not 403 |
 | Snippets | `GET /revisions/{locator}/snippets` | Paginated; `pageSize` capped at 50 (`list_all` overrides) |
 | Snippet paths | `GET /revisions/{locator}/snippets/paths` | File/dir tree, drill in via `path` |
 | Snippet details | `GET /revisions/{locator}/snippets/{id}` | Single snippet + its per-file matches |
@@ -137,12 +137,32 @@ Project (top-level container)
 | `List` | Paginated listing | `Project::list_page(&client, query, page, count)` |
 | `Update` | Modify entity | `Project::update(&client, locator, params)` |
 
+## CLI/MCP parity (`src/ops/`)
+
+The CLI and the MCP server are thin adapters over shared operation
+declarations in `src/ops/`: one enum per verb (`GetCommand`, `ListCommand`,
+`UpdateCommand`) deriving `clap::Subcommand` **and** `Deserialize`/`JsonSchema`
+(internally tagged on `entity`), with one param struct per entity deriving
+`clap::Args` + `Deserialize` + `JsonSchema`. Doc comments become both clap
+help and MCP schema descriptions.
+
+To add an operation: add a param struct, an enum variant, a match arm in the
+verb's `run_*` fn, and an output-enum variant. Both surfaces pick it up with
+no surface-specific code; a missing arm is a compile error. `tests/parity.rs`
+guards the rest (tool list == verbs, clap subcommands == schema entities,
+clap args == schema properties) — never add a `#[serde(skip)]`/`#[clap(skip)]`
+to these types without checking it. Pagination policy — defaults plus the
+global clamp (page ≥ 1, 1 ≤ count ≤ 100) — lives only in `PageArgs::resolve`.
+Per-endpoint bounds (issues min count 5, snippet pageSize ≤ 50) are enforced
+by the API/model layer today; encoding them into the declarations so schemas
+advertise them is issue #41.
+
 ## Models
 
 - **Project** - Top-level container, implements Get/List/Update
 - **Revision** - Snapshot at point in time, implements Get/List
 - **Dependency** - Package dependency, implements List only (via revision)
-- **Issue** - Vulnerability/licensing/quality issue, implements Get/List/Update. Update = ignore/unignore via `IssueUpdateParams` (`IssueAction::Ignore { notes, reason }` / `Unignore`); on success it re-fetches and returns the refreshed issue. `IssueIgnoreReason` is an enum because the API resolves the reason string against its `ResolutionReasons` table and silently stores NULL on a mismatch. `Issue` has no `deny_unknown_fields`, so any API key not declared on the struct is silently dropped — when the API grows a field, add it here or callers never see it. `cpes` is deliberately unmodeled (empty on all 80 sampled issues); `patchedVersionRanges` is modeled but rarely populated (1/80) — prefer `remediation` for upgrade targets. `IssueProject` entries carry the revision the issue was found in (`revision_id`, `latest`, `first_found_at`), not just the project.
+- **Issue** - Vulnerability/licensing/quality issue, implements Get/List/Update. Update = ignore/unignore via `IssueUpdateParams` (`IssueAction::Ignore { notes, reason }` / `Unignore`); it pre-fetches the issue and refuses actions whose target state already fully holds ("unignore it first" — see ADR 0002; partial org-wide states accept both actions, like the UI's global view), then re-fetches and returns the refreshed issue. `IssueIgnoreReason` is an enum because the API resolves the reason string against its `ResolutionReasons` table and silently stores NULL on a mismatch. `Issue` has no `deny_unknown_fields`, so any API key not declared on the struct is silently dropped — when the API grows a field, add it here or callers never see it. `cpes` is deliberately unmodeled (empty on all 80 sampled issues); `patchedVersionRanges` is modeled but rarely populated (1/80) — prefer `remediation` for upgrade targets. `IssueProject` entries carry the revision the issue was found in (`revision_id`, `latest`, `first_found_at`), not just the project.
 - **Snippet** - Third-party (OSS) code matched into first-party files, implements List only (via revision). Read-only; reached through the `get_snippet_*` convenience functions. Quirks: `id` is a string, `matchDetails.matchPercentage` is 0-100 (other percentages are 0-1), and whole-file matches highlight a trailing blank EOF line that is excluded from the reported range.
 - **LicenseInfo** - Can be simple string ("MIT") or full object
 
@@ -164,7 +184,8 @@ All three categories also carry `url` (deep link into the FOSSA UI).
 - **Snippet reject/unreject** - Mutating a snippet's rejection status (out of scope for v1)
 - **Cross-revision snippet compare** - Diffing snippet matches across revisions (out of scope for v1)
 - **Issue exceptions** - `PUT /v2/issues/` also accepts `type: issueException` (org/policy-wide ignores, expirations, package labels; premium-gated) and there are `PUT`/`DELETE /v2/issues/exceptions` endpoints — the single-issue ignore/unignore we model is the common case; exceptions are unmodeled
-- **Bulk issue actions** - the API natively batches (`ids[]` array, or filter-wide when `ids` is omitted); we deliberately send one ID per call so `count: 0` stays an unambiguous failure signal
+- **Bulk issue actions** - the API natively batches (`ids[]` array, or filter-wide when `ids` is omitted — the filter-wide form mass-ignores everything matching, so exposing it needs care); we deliberately send one ID per call and guard each with a pre-flight fetch
+- **Editing an ignore's notes** - deliberately requires unignore-then-re-ignore (matching the UI); the server's raw re-ignore overwrite is reachable only by hand-rolled API calls
 
 ## Nudge
 

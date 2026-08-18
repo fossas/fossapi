@@ -67,8 +67,7 @@ impl FossaClient {
             FossaError::ConfigMissing("FOSSA_API_KEY environment variable not set".to_string())
         })?;
 
-        let base_url =
-            env::var("FOSSA_API_URL").unwrap_or_else(|_| DEFAULT_API_URL.to_string());
+        let base_url = env::var("FOSSA_API_URL").unwrap_or_else(|_| DEFAULT_API_URL.to_string());
 
         Self::new(&token, &base_url)
     }
@@ -213,10 +212,7 @@ impl FossaClient {
     }
 
     /// Extract error message from a failed response.
-    async fn extract_error_message(
-        response: Response,
-        status: reqwest::StatusCode,
-    ) -> String {
+    async fn extract_error_message(response: Response, status: reqwest::StatusCode) -> String {
         let body = match response.text().await {
             Ok(b) => b,
             Err(_) => return format!("HTTP {status}"),
@@ -243,7 +239,7 @@ mod tests {
     #[test]
     fn test_client_debug() {
         let client = FossaClient::new("test-token", "https://app.fossa.com/api").unwrap();
-        let debug = format!("{:?}", client);
+        let debug = format!("{client:?}");
         assert!(debug.contains("FossaClient"));
         assert!(debug.contains("base_url"));
         // Token should not be in debug output

@@ -1,10 +1,16 @@
-//! CLI argument parsing tests (TDD RED phase)
+//! CLI argument parsing tests.
 //!
-//! These tests define the expected CLI interface. Written BEFORE implementation.
+//! These tests define the expected CLI interface. The subcommands parse into
+//! the shared operation enums in `fossapi::ops`, which the MCP server also
+//! consumes.
 
 use clap::Parser;
-use fossapi::cli::{Cli, Command, Entity, GetCommand, ListCommand};
-use fossapi::IssueCategory;
+use fossapi::cli::{Cli, Command, GetCommand, ListCommand, UpdateCommand};
+use fossapi::ops::{
+    GetIssueParams, GetProjectParams, GetRevisionParams, ListDependenciesParams, ListIssuesParams,
+    ListProjectsParams, ListRevisionsParams, PageArgs, UpdateIssueParams, UpdateProjectParams,
+};
+use fossapi::{IssueCategory, IssueIgnoreReason};
 
 #[test]
 fn test_cli_parses_get_subcommand() {
@@ -12,7 +18,9 @@ fn test_cli_parses_get_subcommand() {
 
     assert!(!cli.json);
     match cli.command {
-        Command::Get { command: GetCommand::Project { locator } } => {
+        Command::Get {
+            command: GetCommand::Project(GetProjectParams { locator }),
+        } => {
             assert_eq!(locator, "custom+acme/myapp");
         }
         _ => panic!("Expected Get command with Project variant"),
@@ -25,7 +33,9 @@ fn test_cli_parses_list_subcommand() {
 
     assert!(!cli.json);
     match cli.command {
-        Command::List { command: ListCommand::Projects { .. } } => {}
+        Command::List {
+            command: ListCommand::Projects(..),
+        } => {}
         _ => panic!("Expected List command with Projects variant"),
     }
 }
@@ -44,13 +54,10 @@ fn test_cli_parses_update_subcommand() {
     assert!(!cli.json);
     match cli.command {
         Command::Update {
-            entity,
-            locator,
-            args,
+            command: UpdateCommand::Project(UpdateProjectParams { locator, title, .. }),
         } => {
-            assert!(matches!(entity, Entity::Project));
             assert_eq!(locator, "custom+acme/myapp");
-            assert_eq!(args.title, Some("New Title".to_string()));
+            assert_eq!(title, Some("New Title".to_string()));
         }
         _ => panic!("Expected Update command"),
     }
@@ -69,10 +76,17 @@ fn test_global_json_flag() {
 
 #[test]
 fn test_list_pagination_args() {
-    let cli = Cli::parse_from(["fossapi", "list", "projects", "--page", "2", "--count", "50"]);
+    let cli = Cli::parse_from([
+        "fossapi", "list", "projects", "--page", "2", "--count", "50",
+    ]);
 
     match cli.command {
-        Command::List { command: ListCommand::Projects { page, count } } => {
+        Command::List {
+            command:
+                ListCommand::Projects(ListProjectsParams {
+                    pagination: PageArgs { page, count },
+                }),
+        } => {
             assert_eq!(page, Some(2));
             assert_eq!(count, Some(50));
         }
@@ -84,30 +98,52 @@ fn test_list_pagination_args() {
 fn test_entity_variants() {
     // Project (get uses GetCommand)
     let cli = Cli::parse_from(["fossapi", "get", "project", "loc"]);
-    assert!(matches!(cli.command, Command::Get { command: GetCommand::Project { .. } }));
+    assert!(matches!(
+        cli.command,
+        Command::Get {
+            command: GetCommand::Project(..)
+        }
+    ));
 
     // Revision (get uses GetCommand)
     let cli = Cli::parse_from(["fossapi", "get", "revision", "loc"]);
-    assert!(matches!(cli.command, Command::Get { command: GetCommand::Revision { .. } }));
+    assert!(matches!(
+        cli.command,
+        Command::Get {
+            command: GetCommand::Revision(..)
+        }
+    ));
 
     // Issue (get uses GetCommand with u64 id)
     let cli = Cli::parse_from(["fossapi", "get", "issue", "123"]);
-    assert!(matches!(cli.command, Command::Get { command: GetCommand::Issue { id: 123, .. } }));
+    assert!(matches!(
+        cli.command,
+        Command::Get {
+            command: GetCommand::Issue(GetIssueParams { id: 123, .. })
+        }
+    ));
 
     // Dependencies (list uses ListCommand with required revision)
     let cli = Cli::parse_from(["fossapi", "list", "dependencies", "loc"]);
-    assert!(matches!(cli.command, Command::List { command: ListCommand::Dependencies { .. } }));
+    assert!(matches!(
+        cli.command,
+        Command::List {
+            command: ListCommand::Dependencies(..)
+        }
+    ));
 }
 
 // =============================================================================
-// TDD Tests for ISS-10843: GetCommand type-safe parsing
+// GetCommand type-safe parsing
 // =============================================================================
 
 #[test]
 fn test_get_project_parses_locator() {
     let cli = Cli::parse_from(["fossapi", "get", "project", "custom+acme/myapp"]);
     match cli.command {
-        Command::Get { command: GetCommand::Project { locator } } => {
+        Command::Get {
+            command: GetCommand::Project(GetProjectParams { locator }),
+        } => {
             assert_eq!(locator, "custom+acme/myapp");
         }
         _ => panic!("Expected GetCommand::Project"),
@@ -118,7 +154,9 @@ fn test_get_project_parses_locator() {
 fn test_get_revision_parses_locator() {
     let cli = Cli::parse_from(["fossapi", "get", "revision", "custom+acme/myapp$abc123"]);
     match cli.command {
-        Command::Get { command: GetCommand::Revision { locator } } => {
+        Command::Get {
+            command: GetCommand::Revision(GetRevisionParams { locator }),
+        } => {
             assert_eq!(locator, "custom+acme/myapp$abc123");
         }
         _ => panic!("Expected GetCommand::Revision"),
@@ -129,7 +167,9 @@ fn test_get_revision_parses_locator() {
 fn test_get_issue_parses_numeric_id() {
     let cli = Cli::parse_from(["fossapi", "get", "issue", "12345"]);
     match cli.command {
-        Command::Get { command: GetCommand::Issue { id, category } } => {
+        Command::Get {
+            command: GetCommand::Issue(GetIssueParams { id, category }),
+        } => {
             assert_eq!(id, 12345u64);
             assert_eq!(category, None);
         }
@@ -139,9 +179,18 @@ fn test_get_issue_parses_numeric_id() {
 
 #[test]
 fn test_get_issue_with_category() {
-    let cli = Cli::parse_from(["fossapi", "get", "issue", "12345", "--category", "licensing"]);
+    let cli = Cli::parse_from([
+        "fossapi",
+        "get",
+        "issue",
+        "12345",
+        "--category",
+        "licensing",
+    ]);
     match cli.command {
-        Command::Get { command: GetCommand::Issue { id, category } } => {
+        Command::Get {
+            command: GetCommand::Issue(GetIssueParams { id, category }),
+        } => {
             assert_eq!(id, 12345u64);
             assert_eq!(category, Some(IssueCategory::Licensing));
         }
@@ -156,16 +205,18 @@ fn test_get_issue_rejects_unknown_category() {
 }
 
 // =============================================================================
-// TDD Tests for ISS-10844: ListCommand type-safe parsing
+// ListCommand type-safe parsing
 // =============================================================================
 
 #[test]
 fn test_list_projects_parses() {
     let cli = Cli::parse_from(["fossapi", "list", "projects"]);
     match cli.command {
-        Command::List { command: ListCommand::Projects { page, count } } => {
-            assert_eq!(page, None);
-            assert_eq!(count, None);
+        Command::List {
+            command: ListCommand::Projects(ListProjectsParams { pagination }),
+        } => {
+            assert_eq!(pagination.page, None);
+            assert_eq!(pagination.count, None);
         }
         _ => panic!("Expected ListCommand::Projects"),
     }
@@ -173,11 +224,15 @@ fn test_list_projects_parses() {
 
 #[test]
 fn test_list_projects_with_pagination() {
-    let cli = Cli::parse_from(["fossapi", "list", "projects", "--page", "2", "--count", "50"]);
+    let cli = Cli::parse_from([
+        "fossapi", "list", "projects", "--page", "2", "--count", "50",
+    ]);
     match cli.command {
-        Command::List { command: ListCommand::Projects { page, count } } => {
-            assert_eq!(page, Some(2));
-            assert_eq!(count, Some(50));
+        Command::List {
+            command: ListCommand::Projects(ListProjectsParams { pagination }),
+        } => {
+            assert_eq!(pagination.page, Some(2));
+            assert_eq!(pagination.count, Some(50));
         }
         _ => panic!("Expected ListCommand::Projects"),
     }
@@ -187,9 +242,15 @@ fn test_list_projects_with_pagination() {
 fn test_list_issues_parses() {
     let cli = Cli::parse_from(["fossapi", "list", "issues", "--category", "vulnerability"]);
     match cli.command {
-        Command::List { command: ListCommand::Issues { page, count, category } } => {
-            assert_eq!(page, None);
-            assert_eq!(count, None);
+        Command::List {
+            command:
+                ListCommand::Issues(ListIssuesParams {
+                    category,
+                    pagination,
+                }),
+        } => {
+            assert_eq!(pagination.page, None);
+            assert_eq!(pagination.count, None);
             assert_eq!(category, IssueCategory::Vulnerability);
         }
         _ => panic!("Expected ListCommand::Issues"),
@@ -206,19 +267,28 @@ fn test_list_issues_requires_category() {
 fn test_list_dependencies_requires_revision_arg() {
     let cli = Cli::parse_from(["fossapi", "list", "dependencies", "custom+org/repo$abc"]);
     match cli.command {
-        Command::List { command: ListCommand::Dependencies { revision, revision_positional } } => {
-            assert_eq!(revision, None);
-            assert_eq!(revision_positional, Some("custom+org/repo$abc".to_string()));
+        Command::List {
+            command: ListCommand::Dependencies(ListDependenciesParams { revision, .. }),
+        } => {
+            assert_eq!(revision, "custom+org/repo$abc");
         }
         _ => panic!("Expected ListCommand::Dependencies"),
     }
 }
 
 #[test]
+fn test_list_dependencies_without_revision_is_rejected() {
+    let result = Cli::try_parse_from(["fossapi", "list", "dependencies"]);
+    assert!(result.is_err(), "Expected revision to be required");
+}
+
+#[test]
 fn test_list_revisions_requires_project_arg() {
     let cli = Cli::parse_from(["fossapi", "list", "revisions", "custom+org/repo"]);
     match cli.command {
-        Command::List { command: ListCommand::Revisions { project, .. } } => {
+        Command::List {
+            command: ListCommand::Revisions(ListRevisionsParams { project, .. }),
+        } => {
             assert_eq!(project, "custom+org/repo");
         }
         _ => panic!("Expected ListCommand::Revisions"),
@@ -228,12 +298,26 @@ fn test_list_revisions_requires_project_arg() {
 #[test]
 fn test_list_issues_with_pagination() {
     let cli = Cli::parse_from([
-        "fossapi", "list", "issues", "--page", "3", "--count", "25", "--category", "quality",
+        "fossapi",
+        "list",
+        "issues",
+        "--page",
+        "3",
+        "--count",
+        "25",
+        "--category",
+        "quality",
     ]);
     match cli.command {
-        Command::List { command: ListCommand::Issues { page, count, category } } => {
-            assert_eq!(page, Some(3));
-            assert_eq!(count, Some(25));
+        Command::List {
+            command:
+                ListCommand::Issues(ListIssuesParams {
+                    category,
+                    pagination,
+                }),
+        } => {
+            assert_eq!(pagination.page, Some(3));
+            assert_eq!(pagination.count, Some(25));
             assert_eq!(category, IssueCategory::Quality);
         }
         _ => panic!("Expected ListCommand::Issues"),
@@ -242,43 +326,41 @@ fn test_list_issues_with_pagination() {
 
 #[test]
 fn test_list_revisions_with_pagination() {
-    let cli = Cli::parse_from(["fossapi", "list", "revisions", "custom+org/repo", "--page", "2"]);
+    let cli = Cli::parse_from([
+        "fossapi",
+        "list",
+        "revisions",
+        "custom+org/repo",
+        "--page",
+        "2",
+    ]);
     match cli.command {
-        Command::List { command: ListCommand::Revisions { project, page, count } } => {
+        Command::List {
+            command:
+                ListCommand::Revisions(ListRevisionsParams {
+                    project,
+                    pagination,
+                }),
+        } => {
             assert_eq!(project, "custom+org/repo");
-            assert_eq!(page, Some(2));
-            assert_eq!(count, None);
+            assert_eq!(pagination.page, Some(2));
+            assert_eq!(pagination.count, None);
         }
         _ => panic!("Expected ListCommand::Revisions"),
     }
 }
 
 // =============================================================================
-// TDD Tests for ISS-10849: --revision flag for list dependencies
-// =============================================================================
-
-#[test]
-fn test_list_dependencies_with_revision_flag() {
-    let cli = Cli::parse_from(["fossapi", "list", "dependencies", "--revision", "custom+org/repo$abc"]);
-    match cli.command {
-        Command::List { command: ListCommand::Dependencies { revision, revision_positional } } => {
-            assert_eq!(revision, Some("custom+org/repo$abc".to_string()));
-            assert_eq!(revision_positional, None);
-        }
-        _ => panic!("Expected ListCommand::Dependencies"),
-    }
-}
-
-// =============================================================================
-// TDD Tests for ISS-10845: UpdateCommand CLI parsing
+// UpdateCommand CLI parsing
 // =============================================================================
 
 #[test]
 fn test_update_project_parses_locator() {
     let cli = Cli::parse_from(["fossapi", "update", "project", "custom+acme/myapp"]);
     match cli.command {
-        Command::Update { entity, locator, .. } => {
-            assert!(matches!(entity, Entity::Project));
+        Command::Update {
+            command: UpdateCommand::Project(UpdateProjectParams { locator, .. }),
+        } => {
             assert_eq!(locator, "custom+acme/myapp");
         }
         _ => panic!("Expected Update command"),
@@ -296,8 +378,10 @@ fn test_update_project_title_flag() {
         "New Title",
     ]);
     match cli.command {
-        Command::Update { args, .. } => {
-            assert_eq!(args.title, Some("New Title".to_string()));
+        Command::Update {
+            command: UpdateCommand::Project(UpdateProjectParams { title, .. }),
+        } => {
+            assert_eq!(title, Some("New Title".to_string()));
         }
         _ => panic!("Expected Update command"),
     }
@@ -314,8 +398,30 @@ fn test_update_project_public_flag() {
         "true",
     ]);
     match cli.command {
-        Command::Update { args, .. } => {
-            assert_eq!(args.public, Some(true));
+        Command::Update {
+            command: UpdateCommand::Project(UpdateProjectParams { public, .. }),
+        } => {
+            assert_eq!(public, Some(true));
+        }
+        _ => panic!("Expected Update command"),
+    }
+}
+
+#[test]
+fn test_update_project_url_flag() {
+    let cli = Cli::parse_from([
+        "fossapi",
+        "update",
+        "project",
+        "custom+acme/myapp",
+        "--url",
+        "https://example.com/repo",
+    ]);
+    match cli.command {
+        Command::Update {
+            command: UpdateCommand::Project(UpdateProjectParams { url, .. }),
+        } => {
+            assert_eq!(url, Some("https://example.com/repo".to_string()));
         }
         _ => panic!("Expected Update command"),
     }
@@ -335,21 +441,24 @@ fn test_update_project_multiple_flags() {
     ]);
     match cli.command {
         Command::Update {
-            entity,
-            locator,
-            args,
+            command:
+                UpdateCommand::Project(UpdateProjectParams {
+                    locator,
+                    title,
+                    public,
+                    ..
+                }),
         } => {
-            assert!(matches!(entity, Entity::Project));
             assert_eq!(locator, "custom+acme/myapp");
-            assert_eq!(args.title, Some("New Title".to_string()));
-            assert_eq!(args.public, Some(false));
+            assert_eq!(title, Some("New Title".to_string()));
+            assert_eq!(public, Some(false));
         }
         _ => panic!("Expected Update command"),
     }
 }
 
 // =============================================================================
-// TDD Tests for ISS-10860: MCP CLI subcommand
+// MCP CLI subcommand
 // =============================================================================
 
 #[test]
@@ -375,7 +484,7 @@ fn test_cli_parses_mcp_with_verbose_flag() {
 }
 
 // =============================================================================
-// Issue update flags (ignore / unignore with comment)
+// Issue update flags (ignore / unignore with notes)
 // =============================================================================
 
 #[test]
@@ -395,17 +504,22 @@ fn test_update_issue_ignore_with_notes_and_reason() {
     ]);
     match cli.command {
         Command::Update {
-            entity,
-            locator,
-            args,
+            command:
+                UpdateCommand::Issue(UpdateIssueParams {
+                    id,
+                    category,
+                    ignore,
+                    unignore,
+                    notes,
+                    reason,
+                }),
         } => {
-            assert!(matches!(entity, Entity::Issue));
-            assert_eq!(locator, "987654");
-            assert_eq!(args.category, Some(IssueCategory::Licensing));
-            assert!(args.ignore);
-            assert!(!args.unignore);
-            assert_eq!(args.notes, Some("false positive patch".to_string()));
-            assert_eq!(args.reason, Some(fossapi::IssueIgnoreReason::Other));
+            assert_eq!(id, 987654);
+            assert_eq!(category, IssueCategory::Licensing);
+            assert!(ignore);
+            assert!(!unignore);
+            assert_eq!(notes, Some("false positive patch".to_string()));
+            assert_eq!(reason, Some(IssueIgnoreReason::Other));
         }
         _ => panic!("Expected Update command"),
     }
@@ -423,26 +537,79 @@ fn test_update_issue_unignore() {
         "--unignore",
     ]);
     match cli.command {
-        Command::Update { args, .. } => {
-            assert!(args.unignore);
-            assert!(!args.ignore);
+        Command::Update {
+            command:
+                UpdateCommand::Issue(UpdateIssueParams {
+                    ignore, unignore, ..
+                }),
+        } => {
+            assert!(!ignore);
+            assert!(unignore);
         }
         _ => panic!("Expected Update command"),
     }
 }
 
 #[test]
-fn test_update_issue_ignore_conflicts_with_unignore() {
-    let result = Cli::try_parse_from([
-        "fossapi", "update", "issue", "987654", "--ignore", "--unignore",
-    ]);
-    assert!(result.is_err());
+fn test_update_issue_requires_category() {
+    let result = Cli::try_parse_from(["fossapi", "update", "issue", "987654", "--ignore"]);
+    assert!(result.is_err(), "--category must be required");
 }
 
 #[test]
-fn test_update_issue_notes_requires_ignore() {
+fn test_update_issue_requires_an_action() {
     let result = Cli::try_parse_from([
-        "fossapi", "update", "issue", "987654", "--notes", "orphan comment",
+        "fossapi",
+        "update",
+        "issue",
+        "987654",
+        "--category",
+        "licensing",
     ]);
-    assert!(result.is_err());
+    assert!(result.is_err(), "one of --ignore/--unignore is required");
+}
+
+#[test]
+fn test_update_issue_ignore_conflicts_with_unignore() {
+    let result = Cli::try_parse_from([
+        "fossapi",
+        "update",
+        "issue",
+        "987654",
+        "--category",
+        "licensing",
+        "--ignore",
+        "--unignore",
+    ]);
+    assert!(result.is_err(), "--ignore and --unignore are exclusive");
+}
+
+#[test]
+fn test_update_issue_notes_with_unignore_parses_but_is_rejected_later() {
+    // clap can't tie --notes to --ignore (SetTrue flags defeat `requires`,
+    // and MCP bypasses clap entirely), so the parse succeeds and run_update
+    // rejects the combination at runtime for both surfaces.
+    let cli = Cli::parse_from([
+        "fossapi",
+        "update",
+        "issue",
+        "987654",
+        "--category",
+        "licensing",
+        "--unignore",
+        "--notes",
+        "orphan comment",
+    ]);
+    match cli.command {
+        Command::Update {
+            command:
+                UpdateCommand::Issue(UpdateIssueParams {
+                    unignore, notes, ..
+                }),
+        } => {
+            assert!(unignore);
+            assert_eq!(notes, Some("orphan comment".to_string()));
+        }
+        _ => panic!("Expected Update command"),
+    }
 }

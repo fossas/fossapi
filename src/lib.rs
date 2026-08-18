@@ -57,6 +57,7 @@ mod client;
 mod error;
 pub mod mcp;
 mod models;
+pub mod ops;
 pub mod output;
 mod pagination;
 mod traits;
@@ -75,25 +76,13 @@ pub use traits::{Get, List, Update};
 
 // Re-export models
 pub use models::{
-    // Project types
-    LatestRevision,
-    Project,
-    ProjectIssues,
-    ProjectListQuery,
-    ProjectUpdateParams,
-    // Revision types
-    Revision,
-    RevisionListQuery,
-    RevisionLoc,
-    RevisionQuery,
+    // Snippet types
+    CodeLine,
     // Dependency types
     Dependency,
     DependencyIssue,
     DependencyListQuery,
     DependencyQuery,
-    IssueStatus,
-    IssueType,
-    LicenseInfo,
     // Issue types
     Issue,
     IssueAction,
@@ -107,10 +96,22 @@ pub use models::{
     IssueProject,
     IssueRemediation,
     IssueSource,
+    IssueStatus,
     IssueStatuses,
+    IssueType,
     IssueUpdateParams,
-    // Snippet types
-    CodeLine,
+    // Project types
+    LatestRevision,
+    LicenseInfo,
+    Project,
+    ProjectIssues,
+    ProjectListQuery,
+    ProjectUpdateParams,
+    // Revision types
+    Revision,
+    RevisionListQuery,
+    RevisionLoc,
+    RevisionQuery,
     Snippet,
     SnippetIssueCounts,
     SnippetKind,
@@ -128,6 +129,6 @@ pub use models::{get_dependencies, get_dependencies_page};
 pub use models::{get_issues, get_issues_page, get_project_issues};
 pub use models::{get_revision, get_revisions, get_revisions_page};
 pub use models::{
-    get_snippet_details, get_snippet_locations, get_snippet_match, get_snippet_paths,
-    get_snippets, get_snippets_page,
+    get_snippet_details, get_snippet_locations, get_snippet_locations_page, get_snippet_match,
+    get_snippet_paths, get_snippets, get_snippets_page,
 };

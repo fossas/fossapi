@@ -44,7 +44,7 @@ async fn test_server_shutdown_is_clean() {
 
     // After shutdown, server should not respond
     let client = reqwest::Client::new();
-    let result = client.get(format!("{}/health", url)).send().await;
+    let result = client.get(format!("{url}/health")).send().await;
 
     assert!(result.is_err());
 }
@@ -125,11 +125,10 @@ async fn test_project_not_found() {
 
     assert!(result.is_err());
     let err = result.unwrap_err();
-    let err_str = format!("{:?}", err);
+    let err_str = format!("{err:?}");
     assert!(
         err_str.contains("not found") || err_str.contains("404"),
-        "Error should indicate not found: {}",
-        err_str
+        "Error should indicate not found: {err_str}"
     );
 
     server.shutdown().await;
@@ -238,7 +237,10 @@ async fn test_issues_have_correct_types() {
     }
 
     for issue in &licenses.items {
-        assert!(issue.license.is_some(), "Licensing issue should have license");
+        assert!(
+            issue.license.is_some(),
+            "Licensing issue should have license"
+        );
     }
 
     server.shutdown().await;
@@ -273,7 +275,8 @@ async fn test_ignore_and_unignore_issue_workflow() {
     assert_eq!(ignored.statuses.active, 0);
     assert_eq!(ignored.statuses.ignored, 1);
 
-    // Re-ignoring matches nothing (the status filter targets active rows) and errors.
+    // The client-side guard refuses to re-ignore (server-side it would
+    // silently overwrite the notes) and prompts to unignore first.
     let again = Issue::update(
         &client,
         987654,
@@ -287,6 +290,10 @@ async fn test_ignore_and_unignore_issue_workflow() {
     )
     .await;
     assert!(again.is_err(), "Re-ignoring an ignored issue should error");
+    assert!(
+        again.unwrap_err().to_string().contains("unignore it first"),
+        "guard error should prompt to unignore first"
+    );
 
     // Unignore restores the active status.
     let restored = Issue::update(
@@ -303,7 +310,7 @@ async fn test_ignore_and_unignore_issue_workflow() {
     assert_eq!(restored.statuses.active, 1);
     assert_eq!(restored.statuses.ignored, 0);
 
-    // Wrong category matches nothing.
+    // Wrong category: the pre-flight fetch 404s before any write is sent.
     let wrong_category = Issue::update(
         &client,
         987654,
@@ -381,7 +388,10 @@ async fn test_full_project_analysis_workflow() {
 #[tokio::test]
 async fn test_custom_state_with_multiple_projects() {
     let state = MockState::new()
-        .with_project(Fixtures::minimal_project("custom+org/alpha", "Alpha Project"))
+        .with_project(Fixtures::minimal_project(
+            "custom+org/alpha",
+            "Alpha Project",
+        ))
         .with_project(Fixtures::minimal_project("custom+org/beta", "Beta Project"))
         .with_project(Fixtures::project_with_issues(
             "custom+org/gamma",

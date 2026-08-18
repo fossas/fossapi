@@ -11,13 +11,12 @@ use rmcp::{
     RoleServer,
 };
 use schemars::JsonSchema;
+use serde::Serialize;
 use std::sync::Arc;
 
 use crate::{
-    mcp::{EntityType, GetParams, ListParams, SnippetMatchParams, UpdateAction, UpdateParams},
-    DependencyListQuery, FossaClient, FossaError, Get, Issue, IssueAction, IssueListQuery,
-    IssueUpdateParams, List, Project, ProjectListQuery, ProjectUpdateParams, Revision,
-    RevisionListQuery, SnippetListQuery, Update,
+    ops::{run_get, run_list, run_update, GetCommand, ListCommand, UpdateCommand},
+    FossaClient, FossaError,
 };
 
 /// FOSSA MCP Server.
@@ -27,9 +26,10 @@ use crate::{
 ///
 /// # Tools
 ///
-/// - `get` - Fetch a single entity by ID
-/// - `list` - List entities with pagination
-/// - `update` - Update an entity (Project only)
+/// The server exposes one tool per CLI verb — `get`, `list`, and `update` —
+/// and each tool's input schema is generated from the same
+/// [`crate::ops`] enum that the CLI parses into, so the two surfaces
+/// always expose the same operations with the same parameters.
 ///
 /// # Example
 ///
@@ -68,6 +68,41 @@ impl FossaServer {
         }
     }
 
+    /// The MCP tools this server exposes: one per verb, with input schemas
+    /// generated from the shared [`crate::ops`] command enums.
+    pub fn tools() -> Vec<Tool> {
+        vec![
+            Tool::new(
+                "get",
+                "Fetch a single FOSSA entity. entity values: project (by locator), \
+                 revision (by locator), issue (by numeric id; category optional — when \
+                 omitted, every category is probed, up to 3 requests), snippet (details \
+                 including matched first-party files), snippet_match (side-by-side \
+                 first-party detected_code vs open-source reference_code for one \
+                 snippet at one path).",
+                Self::schema::<GetCommand>(),
+            ),
+            Tool::new(
+                "list",
+                "List FOSSA entities. entity values: projects (paginated), issues \
+                 (category required: vulnerability, licensing, quality), dependencies \
+                 (revision locator required), revisions (project locator required), \
+                 snippets (revision locator; one row per matched OSS package), \
+                 snippet_locations (revision locator; one row per matched first-party \
+                 file, optional with_lines resolves line ranges), snippet_paths \
+                 (revision locator; the file/directory tree where snippets were \
+                 detected).",
+                Self::schema::<ListCommand>(),
+            ),
+            Tool::new(
+                "update",
+                "Update a FOSSA entity. entity values: project (title, description, \
+                 url, public, policy_id, default_branch).",
+                Self::schema::<UpdateCommand>(),
+            ),
+        ]
+    }
+
     /// Generate JSON Schema for a type.
     fn schema<T: JsonSchema>() -> Arc<serde_json::Map<String, serde_json::Value>> {
         let schema = schemars::schema_for!(T);
@@ -85,6 +120,7 @@ impl FossaServer {
                 McpError::resource_not_found(format!("{entity_type} '{id}' not found"), None)
             }
             FossaError::ConfigMissing(msg) => McpError::invalid_params(msg.clone(), None),
+            FossaError::InvalidParams(msg) => McpError::invalid_params(msg.clone(), None),
             FossaError::InvalidLocator(loc) => {
                 McpError::invalid_params(format!("Invalid locator: {loc}"), None)
             }
@@ -92,245 +128,52 @@ impl FossaServer {
         }
     }
 
-    /// Handle the `get` tool.
-    ///
-    /// # Arguments
-    ///
-    /// * `params` - The get parameters including entity type and ID
-    ///
-    /// # Returns
-    ///
-    /// Returns the entity as pretty-printed JSON in a `CallToolResult`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an MCP error if:
-    /// - Entity type is `Dependency` (not supported for get)
-    /// - Issue ID is not a valid number
-    /// - The underlying API call fails
-    pub async fn handle_get(
-        &self,
-        params: GetParams,
-    ) -> Result<CallToolResult, McpError> {
-        let result = match params.entity {
-            EntityType::Project => {
-                let project = Project::get(&self.client, params.id)
-                    .await
-                    .map_err(Self::to_mcp_error)?;
-                serde_json::to_string_pretty(&project)
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            }
-            EntityType::Revision => {
-                let revision = Revision::get(&self.client, params.id)
-                    .await
-                    .map_err(Self::to_mcp_error)?;
-                serde_json::to_string_pretty(&revision)
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            }
-            EntityType::Issue => {
-                let id: u64 = params
-                    .id
-                    .parse()
-                    .map_err(|_| McpError::invalid_params("Issue ID must be a number", None))?;
-                let category = params.category.ok_or_else(|| {
-                    McpError::invalid_params(
-                        "category is required for getting issues (vulnerability, licensing, quality)",
-                        None,
-                    )
-                })?;
-                let issue = Issue::get_with_category(&self.client, id, category)
-                    .await
-                    .map_err(Self::to_mcp_error)?;
-                serde_json::to_string_pretty(&issue)
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            }
-            EntityType::Dependency => {
-                return Err(McpError::invalid_params(
-                    "Dependency does not support get. Use list with a parent revision locator.",
-                    None,
-                ));
-            }
-            EntityType::Snippet => {
-                return Err(McpError::invalid_params(
-                    "Snippet does not support get. Use list with a parent revision locator, \
-                     or the snippet_match tool to drill into a single match.",
-                    None,
-                ));
-            }
+    /// Append a migration hint when failed args look like the legacy (pre-0.3
+    /// unification) shape: generic `parent` field / string `id`. Remove at 1.0.
+    fn describe_args_error(err: serde_json::Error, args: &serde_json::Value) -> McpError {
+        let legacy = args.get("parent").is_some()
+            || matches!(args.get("id"), Some(serde_json::Value::String(_)));
+        let msg = if legacy {
+            format!(
+                "{err} — note: the MCP arg shapes changed: per-entity fields \
+                 replace the generic `parent`/string `id` (see the README's \
+                 migration notes, or re-read this tool's input schema)"
+            )
+        } else {
+            err.to_string()
         };
+        McpError::invalid_params(msg, None)
+    }
 
-        Ok(CallToolResult::success(vec![Content::text(result)]))
+    /// Serialize an operation result into a tool response.
+    fn to_result<T: Serialize>(value: &T) -> Result<CallToolResult, McpError> {
+        let text = serde_json::to_string_pretty(value)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![Content::text(text)]))
+    }
+
+    /// Handle the `get` tool.
+    pub async fn handle_get(&self, command: GetCommand) -> Result<CallToolResult, McpError> {
+        let output = run_get(&self.client, command)
+            .await
+            .map_err(Self::to_mcp_error)?;
+        Self::to_result(&output)
     }
 
     /// Handle the `list` tool.
-    async fn handle_list(&self, params: ListParams) -> Result<CallToolResult, McpError> {
-        let page = params.page.unwrap_or(1);
-        let count = params.count.unwrap_or(20).min(100);
-
-        let result = match params.entity {
-            EntityType::Project => {
-                let query = ProjectListQuery::default();
-                let page_result = Project::list_page(&self.client, &query, page, count)
-                    .await
-                    .map_err(Self::to_mcp_error)?;
-                serde_json::to_string_pretty(&page_result)
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            }
-            EntityType::Revision => {
-                let parent = params.parent.ok_or_else(|| {
-                    McpError::invalid_params(
-                        "parent is required for listing revisions (project locator)",
-                        None,
-                    )
-                })?;
-                let query = RevisionListQuery::default();
-                let page_result =
-                    crate::get_revisions_page(&self.client, &parent, query, page, count)
-                        .await
-                        .map_err(Self::to_mcp_error)?;
-                serde_json::to_string_pretty(&page_result)
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            }
-            EntityType::Issue => {
-                let category = params.category.ok_or_else(|| {
-                    McpError::invalid_params(
-                        "category is required for listing issues (vulnerability, licensing, quality)",
-                        None,
-                    )
-                })?;
-                let query = IssueListQuery {
-                    category: Some(category),
-                    ..Default::default()
-                };
-                let page_result = crate::get_issues_page(&self.client, query, page, count)
-                    .await
-                    .map_err(Self::to_mcp_error)?;
-                serde_json::to_string_pretty(&page_result)
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            }
-            EntityType::Dependency => {
-                let parent = params.parent.ok_or_else(|| {
-                    McpError::invalid_params(
-                        "parent is required for listing dependencies (revision locator)",
-                        None,
-                    )
-                })?;
-                let query = DependencyListQuery::default();
-                let page_result =
-                    crate::get_dependencies_page(&self.client, &parent, query, page, count)
-                        .await
-                        .map_err(Self::to_mcp_error)?;
-                serde_json::to_string_pretty(&page_result)
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            }
-            EntityType::Snippet => {
-                let parent = params.parent.ok_or_else(|| {
-                    McpError::invalid_params(
-                        "parent is required for listing snippets (revision locator)",
-                        None,
-                    )
-                })?;
-                let query = SnippetListQuery {
-                    path: params.path.clone(),
-                    ..Default::default()
-                };
-                let with_lines = params.with_lines.unwrap_or(false);
-                let locations =
-                    crate::get_snippet_locations(&self.client, &parent, query, with_lines)
-                        .await
-                        .map_err(Self::to_mcp_error)?;
-                serde_json::to_string_pretty(&locations)
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            }
-        };
-
-        Ok(CallToolResult::success(vec![Content::text(result)]))
-    }
-
-    /// Handle the `snippet_match` tool: drill into a single snippet match.
-    async fn handle_snippet_match(
-        &self,
-        params: SnippetMatchParams,
-    ) -> Result<CallToolResult, McpError> {
-        let details =
-            crate::get_snippet_match(&self.client, &params.revision, &params.snippet, &params.path)
-                .await
-                .map_err(Self::to_mcp_error)?;
-        let result = serde_json::to_string_pretty(&details)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(result)]))
+    pub async fn handle_list(&self, command: ListCommand) -> Result<CallToolResult, McpError> {
+        let output = run_list(&self.client, command)
+            .await
+            .map_err(Self::to_mcp_error)?;
+        Self::to_result(&output)
     }
 
     /// Handle the `update` tool.
-    async fn handle_update(&self, params: UpdateParams) -> Result<CallToolResult, McpError> {
-        match params.entity {
-            EntityType::Project => {
-                let update_params = ProjectUpdateParams {
-                    title: params.title,
-                    description: params.description,
-                    url: params.url,
-                    public: params.public,
-                    policy_id: None,
-                    default_branch: None,
-                };
-                let project = Project::update(&self.client, params.locator, update_params)
-                    .await
-                    .map_err(Self::to_mcp_error)?;
-                let result = serde_json::to_string_pretty(&project)
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-                Ok(CallToolResult::success(vec![Content::text(result)]))
-            }
-            EntityType::Revision => Err(McpError::invalid_params(
-                "Update not supported for Revision",
-                None,
-            )),
-            EntityType::Issue => {
-                let id: u64 = params.locator.parse().map_err(|_| {
-                    McpError::invalid_params(
-                        "Issue updates take the numeric issue ID as the locator",
-                        None,
-                    )
-                })?;
-                let category = params.category.ok_or_else(|| {
-                    McpError::invalid_params(
-                        "category is required when updating an issue \
-                         (vulnerability, licensing, quality)",
-                        None,
-                    )
-                })?;
-                let action = match params.action {
-                    Some(UpdateAction::Ignore) => IssueAction::Ignore {
-                        notes: params.notes,
-                        reason: params.reason,
-                    },
-                    Some(UpdateAction::Unignore) => IssueAction::Unignore,
-                    None => {
-                        return Err(McpError::invalid_params(
-                            "action is required when updating an issue (ignore, unignore)",
-                            None,
-                        ))
-                    }
-                };
-                let issue = Issue::update(
-                    &self.client,
-                    id,
-                    IssueUpdateParams { category, action },
-                )
-                .await
-                .map_err(Self::to_mcp_error)?;
-                let result = serde_json::to_string_pretty(&issue)
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-                Ok(CallToolResult::success(vec![Content::text(result)]))
-            }
-            EntityType::Dependency => Err(McpError::invalid_params(
-                "Update not supported for Dependency",
-                None,
-            )),
-            EntityType::Snippet => Err(McpError::invalid_params(
-                "Update not supported for Snippet",
-                None,
-            )),
-        }
+    pub async fn handle_update(&self, command: UpdateCommand) -> Result<CallToolResult, McpError> {
+        let output = run_update(&self.client, command)
+            .await
+            .map_err(Self::to_mcp_error)?;
+        Self::to_result(&output)
     }
 }
 
@@ -350,9 +193,12 @@ impl ServerHandler for FossaServer {
             },
             instructions: Some(
                 "FOSSA API MCP Server - Query projects, revisions, issues, dependencies, and \
-                 snippet matches. Use list(entity: snippet, parent: <revision locator>) to map \
-                 third-party code matches to first-party files, then snippet_match to drill into \
-                 a single match's first-party line numbers and side-by-side code."
+                 snippet matches. Tools mirror the fossapi CLI verbs: each takes an `entity` \
+                 discriminator plus that entity's parameters. Use \
+                 list(entity: snippet_locations, revision: <revision locator>) to map \
+                 third-party code matches to first-party files, then \
+                 get(entity: snippet_match) to drill into a single match's first-party line \
+                 numbers and side-by-side code."
                     .to_string(),
             ),
         }
@@ -363,45 +209,8 @@ impl ServerHandler for FossaServer {
         _request: PaginatedRequestParam,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
-        let tools = vec![
-            Tool::new(
-                "get",
-                "Fetch a single FOSSA entity by ID. \
-                 Supports: project (by locator), revision (by locator), issue (by numeric ID, category required). \
-                 Dependency must use list with parent.",
-                Self::schema::<GetParams>(),
-            ),
-            Tool::new(
-                "list",
-                "List FOSSA entities with pagination. \
-                 Projects: no parent needed. \
-                 Revisions: parent = project locator. \
-                 Issues: category required (vulnerability, licensing, quality). \
-                 Dependencies: parent = revision locator. \
-                 Snippets: parent = revision locator; optional path filter and with_lines \
-                 (resolves first-party line ranges). Returns one row per matched first-party file.",
-                Self::schema::<ListParams>(),
-            ),
-            Tool::new(
-                "update",
-                "Update a FOSSA entity. \
-                 Project: locator = project locator; can update title, description, url, public. \
-                 Issue: locator = numeric issue ID; category required; action = ignore or \
-                 unignore, with optional notes (free-text comment) and reason on ignore. \
-                 Requires a full API token (push-only tokens cannot write issues).",
-                Self::schema::<UpdateParams>(),
-            ),
-            Tool::new(
-                "snippet_match",
-                "Drill into a single snippet match. Given a revision locator, snippet ID, and \
-                 first-party file path (from list entity: snippet), returns the matched first-party \
-                 code (detected_code, with line numbers) alongside the open-source reference_code.",
-                Self::schema::<SnippetMatchParams>(),
-            ),
-        ];
-
         Ok(ListToolsResult {
-            tools,
+            tools: Self::tools(),
             next_cursor: None,
         })
     }
@@ -418,24 +227,19 @@ impl ServerHandler for FossaServer {
 
         match request.name.as_ref() {
             "get" => {
-                let params: GetParams = serde_json::from_value(args)
-                    .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
-                self.handle_get(params).await
+                let command: GetCommand = serde_json::from_value(args.clone())
+                    .map_err(|e| Self::describe_args_error(e, &args))?;
+                self.handle_get(command).await
             }
             "list" => {
-                let params: ListParams = serde_json::from_value(args)
-                    .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
-                self.handle_list(params).await
+                let command: ListCommand = serde_json::from_value(args.clone())
+                    .map_err(|e| Self::describe_args_error(e, &args))?;
+                self.handle_list(command).await
             }
             "update" => {
-                let params: UpdateParams = serde_json::from_value(args)
-                    .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
-                self.handle_update(params).await
-            }
-            "snippet_match" => {
-                let params: SnippetMatchParams = serde_json::from_value(args)
-                    .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
-                self.handle_snippet_match(params).await
+                let command: UpdateCommand = serde_json::from_value(args.clone())
+                    .map_err(|e| Self::describe_args_error(e, &args))?;
+                self.handle_update(command).await
             }
             other => Err(McpError::invalid_params(
                 format!("Unknown tool: {other}"),
@@ -448,44 +252,48 @@ impl ServerHandler for FossaServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ops::{
+        GetIssueParams, GetProjectParams, GetRevisionParams, GetSnippetMatchParams,
+        GetSnippetParams, ListDependenciesParams, ListProjectsParams, ListRevisionsParams,
+        ListSnippetLocationsParams, ListSnippetsParams, PageArgs, UpdateIssueParams,
+        UpdateProjectParams,
+    };
     use crate::IssueCategory;
     use wiremock::matchers::{method, path, path_regex, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    #[test]
-    fn schema_generates_for_get_params() {
-        let schema = FossaServer::schema::<GetParams>();
-        assert!(!schema.is_empty());
+    fn response_text(result: &CallToolResult) -> &str {
+        match &result.content[0].raw {
+            rmcp::model::RawContent::Text(t) => &t.text,
+            _ => panic!("Expected text content"),
+        }
     }
 
     #[test]
-    fn schema_generates_for_list_params() {
-        let schema = FossaServer::schema::<ListParams>();
-        assert!(!schema.is_empty());
+    fn tools_are_get_list_update() {
+        let names: Vec<_> = FossaServer::tools()
+            .iter()
+            .map(|t| t.name.to_string())
+            .collect();
+        assert_eq!(names, ["get", "list", "update"]);
     }
 
     #[test]
-    fn schema_generates_for_update_params() {
-        let schema = FossaServer::schema::<UpdateParams>();
-        assert!(!schema.is_empty());
+    fn schemas_generate_for_all_verbs() {
+        assert!(!FossaServer::schema::<GetCommand>().is_empty());
+        assert!(!FossaServer::schema::<ListCommand>().is_empty());
+        assert!(!FossaServer::schema::<UpdateCommand>().is_empty());
     }
 
     #[test]
     fn server_info_has_correct_name() {
-        // We can't construct a FossaServer without env vars, but we can verify
-        // the ServerInfo structure is correct by checking the trait method exists.
-        #[allow(dead_code)]
-        fn verify_get_info<T: ServerHandler>(server: &T) -> ServerInfo {
-            server.get_info()
-        }
-
         // This compiles only if FossaServer implements ServerHandler correctly.
         fn assert_server_handler<T: ServerHandler>() {}
         assert_server_handler::<FossaServer>();
     }
 
     // =========================================================================
-    // ISS-10858: MCP list tool handler tests
+    // list handler tests
     // =========================================================================
 
     /// Test: list(entity: projects) returns paginated list
@@ -525,35 +333,23 @@ mod tests {
         let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
         let server = FossaServer::new(client);
 
-        let params = ListParams {
-            entity: EntityType::Project,
-            parent: None,
-            page: None,
-            count: None,
-            category: None,
-            path: None,
-            with_lines: None,
-        };
+        let result = server
+            .handle_list(ListCommand::Projects(ListProjectsParams {
+                pagination: PageArgs::default(),
+            }))
+            .await
+            .unwrap();
 
-        let result = server.handle_list(params).await.unwrap();
-
-        // Verify success
         assert!(!result.is_error.unwrap_or(false));
-
-        // Parse response and verify Page structure
-        let text = match &result.content[0].raw {
-            rmcp::model::RawContent::Text(t) => &t.text,
-            _ => panic!("Expected text content"),
-        };
-        let page: serde_json::Value = serde_json::from_str(text).unwrap();
+        let page: serde_json::Value = serde_json::from_str(response_text(&result)).unwrap();
         assert_eq!(page["items"].as_array().unwrap().len(), 2);
         assert_eq!(page["page"], 1);
         assert_eq!(page["count"], 20);
     }
 
-    /// Test: list(entity: revisions, parent: locator) lists revisions
+    /// Test: list(entity: revisions, project: locator) lists revisions
     #[tokio::test]
-    async fn handle_list_revisions_with_parent() {
+    async fn handle_list_revisions_with_project() {
         let mock_server = MockServer::start().await;
 
         let response = serde_json::json!({
@@ -581,23 +377,19 @@ mod tests {
         let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
         let server = FossaServer::new(client);
 
-        let params = ListParams {
-            entity: EntityType::Revision,
-            parent: Some("custom+org/repo".to_string()),
-            page: None,
-            count: None,
-            category: None,
-            path: None,
-            with_lines: None,
-        };
-
-        let result = server.handle_list(params).await.unwrap();
+        let result = server
+            .handle_list(ListCommand::Revisions(ListRevisionsParams {
+                project: "custom+org/repo".to_string(),
+                pagination: PageArgs::default(),
+            }))
+            .await
+            .unwrap();
         assert!(!result.is_error.unwrap_or(false));
     }
 
-    /// Test: list(entity: dependencies, parent: locator) lists deps
+    /// Test: list(entity: dependencies, revision: locator) lists deps
     #[tokio::test]
-    async fn handle_list_dependencies_with_parent() {
+    async fn handle_list_dependencies_with_revision() {
         let mock_server = MockServer::start().await;
 
         let response = serde_json::json!({
@@ -612,7 +404,9 @@ mod tests {
         });
 
         Mock::given(method("GET"))
-            .and(path("/v2/revisions/custom%2Borg%2Frepo%24abc123/dependencies"))
+            .and(path(
+                "/v2/revisions/custom%2Borg%2Frepo%24abc123/dependencies",
+            ))
             .respond_with(ResponseTemplate::new(200).set_body_json(&response))
             .expect(1)
             .mount(&mock_server)
@@ -621,103 +415,22 @@ mod tests {
         let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
         let server = FossaServer::new(client);
 
-        let params = ListParams {
-            entity: EntityType::Dependency,
-            parent: Some("custom+org/repo$abc123".to_string()),
-            page: None,
-            count: None,
-            category: None,
-            path: None,
-            with_lines: None,
-        };
-
-        let result = server.handle_list(params).await.unwrap();
+        let result = server
+            .handle_list(ListCommand::Dependencies(ListDependenciesParams {
+                revision: "custom+org/repo$abc123".to_string(),
+                pagination: PageArgs::default(),
+            }))
+            .await
+            .unwrap();
         assert!(!result.is_error.unwrap_or(false));
     }
 
-    /// Test: Missing required parent for revisions returns error
-    #[tokio::test]
-    async fn handle_list_revisions_without_parent_returns_error() {
-        let mock_server = MockServer::start().await;
-
-        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
-        let server = FossaServer::new(client);
-
-        let params = ListParams {
-            entity: EntityType::Revision,
-            parent: None, // Missing required parent
-            page: None,
-            count: None,
-            category: None,
-            path: None,
-            with_lines: None,
-        };
-
-        let result = server.handle_list(params).await;
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.message.to_lowercase().contains("parent"));
-    }
-
-    /// Test: Missing required parent for dependencies returns error
-    #[tokio::test]
-    async fn handle_list_dependencies_without_parent_returns_error() {
-        let mock_server = MockServer::start().await;
-
-        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
-        let server = FossaServer::new(client);
-
-        let params = ListParams {
-            entity: EntityType::Dependency,
-            parent: None, // Missing required parent
-            page: None,
-            count: None,
-            category: None,
-            path: None,
-            with_lines: None,
-        };
-
-        let result = server.handle_list(params).await;
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.message.to_lowercase().contains("parent"));
-    }
-
-    /// Test: Pagination uses defaults (page=1, count=20)
-    #[tokio::test]
-    async fn handle_list_uses_pagination_defaults() {
-        let mock_server = MockServer::start().await;
-
-        // Verify default page=1 and count=20
-        Mock::given(method("GET"))
-            .and(path("/v2/projects"))
-            .and(query_param("page", "1"))
-            .and(query_param("count", "20"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "projects": [],
-                "total": 0
-            })))
-            .expect(1)
-            .mount(&mock_server)
-            .await;
-
-        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
-        let server = FossaServer::new(client);
-
-        let params = ListParams {
-            entity: EntityType::Project,
-            parent: None,
-            page: None,   // Should default to 1
-            count: None,  // Should default to 20
-            category: None,
-            path: None,
-            with_lines: None,
-        };
-
-        let _ = server.handle_list(params).await;
-        // Mock expectations verify the query params were correct
+    /// Test: list JSON missing a required field fails to deserialize.
+    #[test]
+    fn list_revisions_json_without_project_is_rejected() {
+        let err = serde_json::from_value::<ListCommand>(serde_json::json!({"entity": "revisions"}))
+            .unwrap_err();
+        assert!(err.to_string().contains("project"), "{err}");
     }
 
     /// Test: Count is capped at 100
@@ -729,7 +442,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/v2/projects"))
             .and(query_param("page", "1"))
-            .and(query_param("count", "100"))  // Capped from 200
+            .and(query_param("count", "100")) // Capped from 200
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "projects": [],
                 "total": 0
@@ -741,22 +454,19 @@ mod tests {
         let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
         let server = FossaServer::new(client);
 
-        let params = ListParams {
-            entity: EntityType::Project,
-            parent: None,
-            page: Some(1),
-            count: Some(200),  // Should be capped to 100
-            category: None,
-            path: None,
-            with_lines: None,
-        };
-
-        let _ = server.handle_list(params).await;
+        let _ = server
+            .handle_list(ListCommand::Projects(ListProjectsParams {
+                pagination: PageArgs {
+                    page: Some(1),
+                    count: Some(200),
+                },
+            }))
+            .await;
         // Mock expectations verify count was capped
     }
 
     // =========================================================================
-    // MCP Get Tool Handler Tests
+    // get handler tests
     // =========================================================================
 
     #[tokio::test]
@@ -781,22 +491,17 @@ mod tests {
         let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
         let server = FossaServer::new(client);
 
-        let params = GetParams {
-            entity: EntityType::Project,
-            id: "custom+123/test-project".to_string(),
-            category: None,
-        };
-
-        let result = server.handle_get(params).await.expect("handle_get should succeed");
+        let result = server
+            .handle_get(GetCommand::Project(GetProjectParams {
+                locator: "custom+123/test-project".to_string(),
+            }))
+            .await
+            .expect("handle_get should succeed");
 
         assert!(!result.is_error.unwrap_or(false));
-        let content = &result.content[0];
-        if let rmcp::model::RawContent::Text(text) = &content.raw {
-            assert!(text.text.contains("Test Project"));
-            assert!(text.text.contains("custom+123/test-project"));
-        } else {
-            panic!("Expected text content");
-        }
+        let text = response_text(&result);
+        assert!(text.contains("Test Project"));
+        assert!(text.contains("custom+123/test-project"));
     }
 
     #[tokio::test]
@@ -819,22 +524,17 @@ mod tests {
         let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
         let server = FossaServer::new(client);
 
-        let params = GetParams {
-            entity: EntityType::Revision,
-            id: "custom+123/test$main".to_string(),
-            category: None,
-        };
-
-        let result = server.handle_get(params).await.expect("handle_get should succeed");
+        let result = server
+            .handle_get(GetCommand::Revision(GetRevisionParams {
+                locator: "custom+123/test$main".to_string(),
+            }))
+            .await
+            .expect("handle_get should succeed");
 
         assert!(!result.is_error.unwrap_or(false));
-        let content = &result.content[0];
-        if let rmcp::model::RawContent::Text(text) = &content.raw {
-            assert!(text.text.contains("custom+123/test$main"));
-            assert!(text.text.contains("resolved"));
-        } else {
-            panic!("Expected text content");
-        }
+        let text = response_text(&result);
+        assert!(text.contains("custom+123/test$main"));
+        assert!(text.contains("resolved"));
     }
 
     #[tokio::test]
@@ -863,294 +563,48 @@ mod tests {
         let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
         let server = FossaServer::new(client);
 
-        let params = GetParams {
-            entity: EntityType::Issue,
-            id: "12345".to_string(),
-            category: Some(IssueCategory::Vulnerability),
-        };
-
-        let result = server.handle_get(params).await.expect("handle_get should succeed");
+        let result = server
+            .handle_get(GetCommand::Issue(GetIssueParams {
+                id: 12345,
+                category: Some(IssueCategory::Vulnerability),
+            }))
+            .await
+            .expect("handle_get should succeed");
 
         assert!(!result.is_error.unwrap_or(false));
-        let content = &result.content[0];
-        if let rmcp::model::RawContent::Text(text) = &content.raw {
-            assert!(text.text.contains("12345"));
-            assert!(text.text.contains("vulnerability"));
-            assert!(text.text.contains("CVE-2024-0001"));
-        } else {
-            panic!("Expected text content");
-        }
+        let text = response_text(&result);
+        assert!(text.contains("12345"));
+        assert!(text.contains("vulnerability"));
+        assert!(text.contains("CVE-2024-0001"));
     }
 
+    /// Without a category, the handler probes categories instead of erroring.
     #[tokio::test]
-    async fn handle_get_issue_without_category_returns_error() {
-        let mock_server = MockServer::start().await;
-        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
-        let server = FossaServer::new(client);
-
-        let params = GetParams {
-            entity: EntityType::Issue,
-            id: "12345".to_string(),
-            category: None, // Missing required category
-        };
-
-        let result = server.handle_get(params).await;
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.message.to_lowercase().contains("category"));
-    }
-
-    #[tokio::test]
-    async fn handle_get_dependency_returns_error() {
-        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
-        let server = FossaServer::new(client);
-
-        let params = GetParams {
-            entity: EntityType::Dependency,
-            id: "npm+lodash$4.17.21".to_string(),
-            category: None,
-        };
-
-        let result = server.handle_get(params).await;
-
-        let err = result.expect_err("get dependency should fail");
-        let err_msg = format!("{:?}", err);
-        assert!(
-            err_msg.contains("does not support get") || err_msg.contains("list with a parent"),
-            "Error should mention dependency doesn't support get: {}",
-            err_msg
-        );
-    }
-
-    #[tokio::test]
-    async fn handle_get_issue_with_invalid_id_returns_error() {
-        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
-        let server = FossaServer::new(client);
-
-        let params = GetParams {
-            entity: EntityType::Issue,
-            id: "not-a-number".to_string(),
-            category: Some(IssueCategory::Vulnerability),
-        };
-
-        let result = server.handle_get(params).await;
-
-        let err = result.expect_err("get issue with invalid ID should fail");
-        let err_msg = format!("{:?}", err);
-        assert!(
-            err_msg.contains("must be a number"),
-            "Error should mention issue ID must be numeric: {}",
-            err_msg
-        );
-    }
-
-    // =========================================================================
-    // ISS-10859: MCP Update Tool Handler Tests
-    // =========================================================================
-
-    #[tokio::test]
-    async fn handle_update_revision_returns_error() {
-        // Create a minimal client (won't be used since revision update fails early)
-        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
-        let server = FossaServer::new(client);
-
-        let params = UpdateParams {
-            entity: EntityType::Revision,
-            locator: "custom+org/repo$main".to_string(),
-            title: Some("New Title".to_string()),
-            description: None,
-            url: None,
-            public: None,
-            category: None,
-            action: None,
-            notes: None,
-            reason: None,
-        };
-
-        let result = server.handle_update(params).await;
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.message.contains("not supported"));
-    }
-
-    #[tokio::test]
-    async fn handle_update_issue_without_category_returns_error() {
-        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
-        let server = FossaServer::new(client);
-
-        let params = UpdateParams {
-            entity: EntityType::Issue,
-            locator: "12345".to_string(),
-            title: None,
-            description: None,
-            url: None,
-            public: None,
-            category: None,
-            action: Some(crate::mcp::UpdateAction::Ignore),
-            notes: None,
-            reason: None,
-        };
-
-        let result = server.handle_update(params).await;
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.message.contains("category is required"));
-    }
-
-    #[tokio::test]
-    async fn handle_update_issue_without_action_returns_error() {
-        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
-        let server = FossaServer::new(client);
-
-        let params = UpdateParams {
-            entity: EntityType::Issue,
-            locator: "12345".to_string(),
-            title: None,
-            description: None,
-            url: None,
-            public: None,
-            category: Some(crate::IssueCategory::Licensing),
-            action: None,
-            notes: None,
-            reason: None,
-        };
-
-        let result = server.handle_update(params).await;
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.message.contains("action is required"));
-    }
-
-    #[tokio::test]
-    async fn handle_update_issue_with_non_numeric_locator_returns_error() {
-        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
-        let server = FossaServer::new(client);
-
-        let params = UpdateParams {
-            entity: EntityType::Issue,
-            locator: "custom+org/repo".to_string(),
-            title: None,
-            description: None,
-            url: None,
-            public: None,
-            category: Some(crate::IssueCategory::Licensing),
-            action: Some(crate::mcp::UpdateAction::Ignore),
-            notes: None,
-            reason: None,
-        };
-
-        let result = server.handle_update(params).await;
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.message.contains("numeric issue ID"));
-    }
-
-    #[tokio::test]
-    async fn handle_update_issue_ignore_sends_action_and_returns_refreshed_issue() {
-        use wiremock::matchers::{body_json, query_param};
-
+    async fn handle_get_issue_without_category_probes() {
         let mock_server = MockServer::start().await;
 
-        let expected_body = serde_json::json!({
-            "type": "ignore",
-            "notes": "false positive patch",
-            "reason": "other"
-        });
-
-        // The write: PUT /v2/issues/ with the target in the query string.
-        Mock::given(method("PUT"))
-            .and(path("/v2/issues/"))
-            .and(query_param("category", "licensing"))
-            .and(query_param("status", "active"))
-            .and(query_param("ids[]", "987654"))
-            .and(body_json(&expected_body))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(serde_json::json!({"count": 1, "issueId": 987654})),
-            )
-            .expect(1)
-            .mount(&mock_server)
-            .await;
-
-        // The refresh read that follows a successful write.
-        let refreshed = serde_json::json!({
-            "id": 987654,
+        let issue_json = serde_json::json!({
+            "id": 12345,
             "type": "licensing",
             "source": {"id": "npm+leftpad$1.0.0"},
-            "statuses": {"active": 0, "ignored": 1},
+            "depths": {"direct": 1, "deep": 0},
+            "statuses": {"active": 1, "ignored": 0},
+            "projects": [],
             "license": "GPL-3.0"
         });
+
+        // First probed category answers 404; the next answers 200.
         Mock::given(method("GET"))
-            .and(path("/v2/issues/987654"))
-            .and(query_param("category", "licensing"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&refreshed))
-            .expect(1)
-            .mount(&mock_server)
-            .await;
-
-        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
-        let server = FossaServer::new(client);
-
-        let params = UpdateParams {
-            entity: EntityType::Issue,
-            locator: "987654".to_string(),
-            title: None,
-            description: None,
-            url: None,
-            public: None,
-            category: Some(crate::IssueCategory::Licensing),
-            action: Some(crate::mcp::UpdateAction::Ignore),
-            notes: Some("false positive patch".to_string()),
-            reason: Some(crate::IssueIgnoreReason::Other),
-        };
-
-        let result = server.handle_update(params).await;
-
-        assert!(result.is_ok(), "expected success, got {result:?}");
-        let call_result = result.unwrap();
-        let content = &call_result.content[0];
-        if let rmcp::model::RawContent::Text(text) = &content.raw {
-            assert!(text.text.contains("987654"));
-            assert!(text.text.contains("\"ignored\": 1"));
-        } else {
-            panic!("Expected text content");
-        }
-    }
-
-    #[tokio::test]
-    async fn handle_update_issue_unignore_targets_ignored_rows() {
-        use wiremock::matchers::{body_json, query_param};
-
-        let mock_server = MockServer::start().await;
-
-        Mock::given(method("PUT"))
-            .and(path("/v2/issues/"))
+            .and(path("/v2/issues/12345"))
             .and(query_param("category", "vulnerability"))
-            .and(query_param("status", "ignored"))
-            .and(query_param("ids[]", "555"))
-            .and(body_json(&serde_json::json!({"type": "unignore"})))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(serde_json::json!({"count": 1, "issueId": 555})),
-            )
+            .respond_with(ResponseTemplate::new(404))
             .expect(1)
             .mount(&mock_server)
             .await;
-
-        let refreshed = serde_json::json!({
-            "id": 555,
-            "type": "vulnerability",
-            "source": {"id": "npm+lodash$4.17.20"},
-            "statuses": {"active": 1, "ignored": 0}
-        });
         Mock::given(method("GET"))
-            .and(path("/v2/issues/555"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&refreshed))
+            .and(path("/v2/issues/12345"))
+            .and(query_param("category", "licensing"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&issue_json))
             .expect(1)
             .mount(&mock_server)
             .await;
@@ -1158,85 +612,21 @@ mod tests {
         let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
         let server = FossaServer::new(client);
 
-        let params = UpdateParams {
-            entity: EntityType::Issue,
-            locator: "555".to_string(),
-            title: None,
-            description: None,
-            url: None,
-            public: None,
-            category: Some(crate::IssueCategory::Vulnerability),
-            action: Some(crate::mcp::UpdateAction::Unignore),
-            notes: None,
-            reason: None,
-        };
+        let result = server
+            .handle_get(GetCommand::Issue(GetIssueParams {
+                id: 12345,
+                category: None,
+            }))
+            .await
+            .expect("handle_get should succeed via category probe");
 
-        let result = server.handle_update(params).await;
-        assert!(result.is_ok(), "expected success, got {result:?}");
+        assert!(!result.is_error.unwrap_or(false));
+        assert!(response_text(&result).contains("GPL-3.0"));
     }
 
-    #[tokio::test]
-    async fn handle_update_issue_count_zero_is_an_error() {
-        use wiremock::matchers::query_param;
-
-        let mock_server = MockServer::start().await;
-
-        Mock::given(method("PUT"))
-            .and(path("/v2/issues/"))
-            .and(query_param("ids[]", "987654"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(serde_json::json!({"count": 0})),
-            )
-            .expect(1)
-            .mount(&mock_server)
-            .await;
-
-        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
-        let server = FossaServer::new(client);
-
-        let params = UpdateParams {
-            entity: EntityType::Issue,
-            locator: "987654".to_string(),
-            title: None,
-            description: None,
-            url: None,
-            public: None,
-            category: Some(crate::IssueCategory::Licensing),
-            action: Some(crate::mcp::UpdateAction::Ignore),
-            notes: None,
-            reason: None,
-        };
-
-        let result = server.handle_update(params).await;
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.message.contains("no active licensing issue matched"));
-    }
-
-    #[tokio::test]
-    async fn handle_update_dependency_returns_error() {
-        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
-        let server = FossaServer::new(client);
-
-        let params = UpdateParams {
-            entity: EntityType::Dependency,
-            locator: "npm+lodash$4.17.21".to_string(),
-            title: Some("New Title".to_string()),
-            description: None,
-            url: None,
-            public: None,
-            category: None,
-            action: None,
-            notes: None,
-            reason: None,
-        };
-
-        let result = server.handle_update(params).await;
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.message.contains("not supported"));
-    }
+    // =========================================================================
+    // update handler tests
+    // =========================================================================
 
     #[tokio::test]
     async fn handle_update_project_title_succeeds() {
@@ -1267,48 +657,36 @@ mod tests {
         let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
         let server = FossaServer::new(client);
 
-        let params = UpdateParams {
-            entity: EntityType::Project,
-            locator: "custom+acme/myapp".to_string(),
-            title: Some("Updated Title".to_string()),
-            description: None,
-            url: None,
-            public: None,
-            category: None,
-            action: None,
-            notes: None,
-            reason: None,
-        };
+        let result = server
+            .handle_update(UpdateCommand::Project(UpdateProjectParams {
+                locator: "custom+acme/myapp".to_string(),
+                title: Some("Updated Title".to_string()),
+                description: None,
+                url: None,
+                public: None,
+                policy_id: None,
+                default_branch: None,
+            }))
+            .await
+            .unwrap();
 
-        let result = server.handle_update(params).await;
-
-        assert!(result.is_ok());
-        let call_result = result.unwrap();
-        assert!(!call_result.is_error.unwrap_or(false));
-
-        // Verify the response contains the updated title
-        let content = &call_result.content[0];
-        if let rmcp::model::RawContent::Text(text) = &content.raw {
-            assert!(text.text.contains("Updated Title"));
-        } else {
-            panic!("Expected text content");
-        }
+        assert!(!result.is_error.unwrap_or(false));
+        assert!(response_text(&result).contains("Updated Title"));
     }
 
     #[tokio::test]
-    async fn handle_update_project_description_succeeds() {
+    async fn handle_update_project_url_succeeds() {
         use wiremock::matchers::body_json;
 
         let mock_server = MockServer::start().await;
 
         let expected_body = serde_json::json!({
-            "description": "New project description"
+            "url": "https://example.com/repo"
         });
 
         let response_project = serde_json::json!({
             "id": "custom+acme/myapp",
             "title": "My App",
-            "description": "New project description",
             "public": false,
             "labels": [],
             "teams": []
@@ -1325,63 +703,46 @@ mod tests {
         let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
         let server = FossaServer::new(client);
 
-        let params = UpdateParams {
-            entity: EntityType::Project,
-            locator: "custom+acme/myapp".to_string(),
-            title: None,
-            description: Some("New project description".to_string()),
-            url: None,
-            public: None,
-            category: None,
-            action: None,
-            notes: None,
-            reason: None,
-        };
+        let result = server
+            .handle_update(UpdateCommand::Project(UpdateProjectParams {
+                locator: "custom+acme/myapp".to_string(),
+                title: None,
+                description: None,
+                url: Some("https://example.com/repo".to_string()),
+                public: None,
+                policy_id: None,
+                default_branch: None,
+            }))
+            .await
+            .unwrap();
 
-        let result = server.handle_update(params).await;
-
-        assert!(result.is_ok());
-        let call_result = result.unwrap();
-        assert!(!call_result.is_error.unwrap_or(false));
-
-        // Verify the response contains valid project data
-        // Note: The Project struct doesn't have a description field,
-        // so we verify the locator is correct (wiremock verifies the request body)
-        let content = &call_result.content[0];
-        if let rmcp::model::RawContent::Text(text) = &content.raw {
-            assert!(text.text.contains("custom+acme/myapp"));
-            assert!(text.text.contains("My App"));
-        } else {
-            panic!("Expected text content");
-        }
+        assert!(!result.is_error.unwrap_or(false));
+        assert!(response_text(&result).contains("custom+acme/myapp"));
     }
 
     // =========================================================================
-    // ISS-10910: MCP Issue Category Parameter Tests
+    // snippet handler tests
     // =========================================================================
 
-    /// Test: list(entity: issue, category: vulnerability) succeeds
+    /// Test: list(entity: snippets) returns the paged snippet summaries.
     #[tokio::test]
-    async fn handle_list_issues_with_category() {
+    async fn handle_list_snippets_returns_page() {
         let mock_server = MockServer::start().await;
 
-        let response = serde_json::json!({
-            "issues": [{
-                "id": 123,
-                "type": "vulnerability",
-                "source": {"id": "npm+pkg$1.0.0"},
-                "depths": {"direct": 1, "deep": 0},
-                "statuses": {"active": 1, "ignored": 0},
-                "projects": []
-            }]
+        let list_body = serde_json::json!({
+            "results": [{
+                "id": "55", "packageId": "7", "purl": "pkg:x",
+                "locator": "pod+x$1", "package": "X", "version": "1.0",
+                "kind": "file", "matchCount": 1
+            }],
+            "totalCount": 1, "page": 1, "pageSize": 50
         });
 
         Mock::given(method("GET"))
-            .and(path("/v2/issues"))
-            .and(query_param("category", "vulnerability"))
+            .and(path("/revisions/custom%2Borg%2Frepo%24main/snippets"))
             .and(query_param("page", "1"))
-            .and(query_param("count", "20"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&response))
+            .and(query_param("pageSize", "20"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&list_body))
             .expect(1)
             .mount(&mock_server)
             .await;
@@ -1389,50 +750,22 @@ mod tests {
         let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
         let server = FossaServer::new(client);
 
-        let params = ListParams {
-            entity: EntityType::Issue,
-            parent: None,
-            page: None,
-            count: None,
-            category: Some(IssueCategory::Vulnerability),
-            path: None,
-            with_lines: None,
-        };
-
-        let result = server.handle_list(params).await.unwrap();
+        let result = server
+            .handle_list(ListCommand::Snippets(ListSnippetsParams {
+                revision: "custom+org/repo$main".to_string(),
+                path: None,
+                pagination: PageArgs::default(),
+            }))
+            .await
+            .unwrap();
         assert!(!result.is_error.unwrap_or(false));
+        let page: serde_json::Value = serde_json::from_str(response_text(&result)).unwrap();
+        assert_eq!(page["items"][0]["id"], "55");
     }
 
-    /// Test: list(entity: issue) without category returns error
+    /// Test: list(entity: snippet_locations) returns flattened locations.
     #[tokio::test]
-    async fn handle_list_issues_without_category_returns_error() {
-        let mock_server = MockServer::start().await;
-        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
-        let server = FossaServer::new(client);
-
-        let params = ListParams {
-            entity: EntityType::Issue,
-            parent: None,
-            page: None,
-            count: None,
-            category: None, // Missing required category
-            path: None,
-            with_lines: None,
-        };
-
-        let result = server.handle_list(params).await;
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.message.to_lowercase().contains("category"));
-    }
-
-    // =========================================================================
-    // Snippet MCP handler tests
-    // =========================================================================
-
-    /// Test: list(entity: snippet, parent: revision) returns flattened locations.
-    #[tokio::test]
-    async fn handle_list_snippets_returns_locations() {
+    async fn handle_list_snippet_locations_returns_locations() {
         let mock_server = MockServer::start().await;
 
         let list_body = serde_json::json!({
@@ -1454,7 +787,10 @@ mod tests {
 
         Mock::given(method("GET"))
             .and(path("/revisions/custom%2Borg%2Frepo%24main/snippets"))
+            .and(query_param("page", "1"))
+            .and(query_param("pageSize", "20"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&list_body))
+            .expect(1)
             .mount(&mock_server)
             .await;
         Mock::given(method("GET"))
@@ -1466,47 +802,98 @@ mod tests {
         let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
         let server = FossaServer::new(client);
 
-        let params = ListParams {
-            entity: EntityType::Snippet,
-            parent: Some("custom+org/repo$main".to_string()),
-            page: None,
-            count: None,
-            category: None,
-            path: None,
-            with_lines: None,
-        };
-
-        let result = server.handle_list(params).await.unwrap();
+        let result = server
+            .handle_list(ListCommand::SnippetLocations(ListSnippetLocationsParams {
+                revision: "custom+org/repo$main".to_string(),
+                path: None,
+                with_lines: false,
+                pagination: PageArgs::default(),
+            }))
+            .await
+            .unwrap();
         assert!(!result.is_error.unwrap_or(false));
-        let text = result.content[0].raw.as_text().unwrap().text.as_str();
-        assert!(text.contains("/src/a.rs"));
-        assert!(text.contains("\"snippet_id\": \"55\""));
+        let page: serde_json::Value = serde_json::from_str(response_text(&result)).unwrap();
+        assert_eq!(page["items"][0]["path"], "/src/a.rs");
+        assert_eq!(page["items"][0]["snippet_id"], "55");
+        assert_eq!(page["page"], 1);
     }
 
-    /// Test: list(entity: snippet) without parent returns error.
+    /// Test: update with no fields is rejected before any HTTP call.
     #[tokio::test]
-    async fn handle_list_snippets_without_parent_returns_error() {
+    async fn handle_update_project_without_fields_is_rejected() {
         let mock_server = MockServer::start().await;
+        // No PUT mock mounted: a request would fail the test via connection to
+        // an unmatched route below anyway, but the point is we never get there.
+
         let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
         let server = FossaServer::new(client);
 
-        let params = ListParams {
-            entity: EntityType::Snippet,
-            parent: None,
-            page: None,
-            count: None,
-            category: None,
-            path: None,
-            with_lines: None,
-        };
-
-        let err = server.handle_list(params).await.unwrap_err();
-        assert!(err.message.to_lowercase().contains("parent"));
+        let err = server
+            .handle_update(UpdateCommand::Project(UpdateProjectParams {
+                locator: "custom+acme/myapp".to_string(),
+                title: None,
+                description: None,
+                url: None,
+                public: None,
+                policy_id: None,
+                default_branch: None,
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("at least one field"), "{err:?}");
     }
 
-    /// Test: snippet_match drills into a single match and returns the code.
+    /// Test: legacy arg shapes get a migration hint appended to the error.
     #[tokio::test]
-    async fn handle_snippet_match_returns_code() {
+    async fn call_tool_legacy_args_get_migration_hint() {
+        let err = FossaServer::describe_args_error(
+            serde_json::from_value::<GetCommand>(
+                serde_json::json!({"entity": "issue", "id": "123", "parent": "x"}),
+            )
+            .unwrap_err(),
+            &serde_json::json!({"entity": "issue", "id": "123", "parent": "x"}),
+        );
+        assert!(err.message.contains("arg shapes changed"), "{err:?}");
+    }
+
+    /// Test: get(entity: snippet) returns snippet details with matches.
+    #[tokio::test]
+    async fn handle_get_snippet_returns_details() {
+        let mock_server = MockServer::start().await;
+
+        let details_body = serde_json::json!({
+            "snippet": {
+                "id": "55", "packageId": "7", "purl": "pkg:x",
+                "locator": "pod+x$1", "package": "X", "version": "1.0",
+                "kind": "file",
+                "matches": [{"path": "/src/a.rs", "matchPercentage": 1}]
+            }
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/revisions/custom%2Borg%2Frepo%24main/snippets/55"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&details_body))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let result = server
+            .handle_get(GetCommand::Snippet(GetSnippetParams {
+                revision: "custom+org/repo$main".to_string(),
+                snippet: "55".to_string(),
+            }))
+            .await
+            .unwrap();
+        assert!(!result.is_error.unwrap_or(false));
+        assert!(response_text(&result).contains("/src/a.rs"));
+    }
+
+    /// Test: get(entity: snippet_match) drills into a single match.
+    #[tokio::test]
+    async fn handle_get_snippet_match_returns_code() {
         let mock_server = MockServer::start().await;
 
         let match_body = serde_json::json!({
@@ -1528,33 +915,236 @@ mod tests {
         let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
         let server = FossaServer::new(client);
 
-        let params = SnippetMatchParams {
-            revision: "custom+org/repo$main".to_string(),
-            snippet: "55".to_string(),
-            path: "/src/a.rs".to_string(),
-        };
-
-        let result = server.handle_snippet_match(params).await.unwrap();
+        let result = server
+            .handle_get(GetCommand::SnippetMatch(GetSnippetMatchParams {
+                revision: "custom+org/repo$main".to_string(),
+                snippet: "55".to_string(),
+                path: "/src/a.rs".to_string(),
+            }))
+            .await
+            .unwrap();
         assert!(!result.is_error.unwrap_or(false));
-        let text = result.content[0].raw.as_text().unwrap().text.as_str();
+        let text = response_text(&result);
         assert!(text.contains("detectedCode") || text.contains("detected_code"));
         assert!(text.contains("42"));
     }
 
-    /// Test: snippet does not support get.
+    // =========================================================================
+    // update issue handler tests
+    // =========================================================================
+
+    fn issue_body(id: u64, active: u32, ignored: u32) -> serde_json::Value {
+        serde_json::json!({
+            "id": id,
+            "type": "licensing",
+            "source": {"id": "npm+leftpad$1.0.0"},
+            "statuses": {"active": active, "ignored": ignored},
+            "license": "GPL-3.0"
+        })
+    }
+
+    fn issue_params(ignore: bool, unignore: bool) -> UpdateIssueParams {
+        UpdateIssueParams {
+            id: 987654,
+            category: IssueCategory::Licensing,
+            ignore,
+            unignore,
+            notes: Some("false positive patch".to_string()),
+            reason: Some(crate::IssueIgnoreReason::Other),
+        }
+    }
+
+    /// Test: ignore fetches the issue, sends the action, and returns the
+    /// refreshed issue.
     #[tokio::test]
-    async fn handle_get_snippet_returns_error() {
+    async fn handle_update_issue_ignore_succeeds() {
+        use wiremock::matchers::body_json;
+
+        let mock_server = MockServer::start().await;
+
+        // Pre-flight guard fetch (active) and post-write refresh (ignored).
+        Mock::given(method("GET"))
+            .and(path("/v2/issues/987654"))
+            .and(query_param("category", "licensing"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(issue_body(987654, 1, 0)))
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("PUT"))
+            .and(path("/v2/issues/"))
+            .and(query_param("category", "licensing"))
+            .and(query_param("ids[]", "987654"))
+            .and(body_json(serde_json::json!({
+                "type": "ignore",
+                "notes": "false positive patch",
+                "reason": "other"
+            })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"count": 1, "issueId": 987654})),
+            )
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/v2/issues/987654"))
+            .and(query_param("category", "licensing"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(issue_body(987654, 0, 1)))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let result = server
+            .handle_update(UpdateCommand::Issue(issue_params(true, false)))
+            .await
+            .unwrap();
+        assert!(!result.is_error.unwrap_or(false));
+        let text = response_text(&result);
+        assert!(text.contains("987654"));
+        assert!(text.contains("\"ignored\": 1"));
+    }
+
+    /// Test: ignoring an already-ignored issue is refused before any PUT.
+    #[tokio::test]
+    async fn handle_update_issue_already_ignored_is_rejected_without_put() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/v2/issues/987654"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(issue_body(987654, 0, 1)))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("PUT"))
+            .and(path("/v2/issues/"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let err = server
+            .handle_update(UpdateCommand::Issue(issue_params(true, false)))
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("unignore it first"), "{err:?}");
+    }
+
+    /// Test: unignoring an issue with nothing ignored is refused before any PUT.
+    #[tokio::test]
+    async fn handle_update_issue_unignore_active_is_rejected_without_put() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/v2/issues/987654"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(issue_body(987654, 1, 0)))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("PUT"))
+            .and(path("/v2/issues/"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let mut params = issue_params(false, true);
+        params.notes = None;
+        params.reason = None;
+        let err = server
+            .handle_update(UpdateCommand::Issue(params))
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("nothing to unignore"), "{err:?}");
+    }
+
+    /// Test: a partially ignored issue (org-wide rollup) accepts both actions,
+    /// like the UI's global issue view.
+    #[tokio::test]
+    async fn handle_update_issue_partial_state_allows_ignore() {
+        use wiremock::matchers::body_json;
+
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/v2/issues/987654"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(issue_body(987654, 2, 1)))
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("PUT"))
+            .and(path("/v2/issues/"))
+            .and(body_json(serde_json::json!({
+                "type": "ignore",
+                "notes": "false positive patch",
+                "reason": "other"
+            })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"count": 2, "issueId": null})),
+            )
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/v2/issues/987654"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(issue_body(987654, 0, 3)))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let result = server
+            .handle_update(UpdateCommand::Issue(issue_params(true, false)))
+            .await
+            .unwrap();
+        assert!(!result.is_error.unwrap_or(false));
+    }
+
+    /// Test: MCP arguments bypass clap, so exactly-one-action is re-checked.
+    #[tokio::test]
+    async fn handle_update_issue_without_action_is_rejected() {
         let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
         let server = FossaServer::new(client);
 
-        let params = GetParams {
-            entity: EntityType::Snippet,
-            id: "55".to_string(),
-            category: None,
-        };
+        let err = server
+            .handle_update(UpdateCommand::Issue(issue_params(false, false)))
+            .await
+            .unwrap_err();
+        assert!(
+            err.message.contains("exactly one of ignore or unignore"),
+            "{err:?}"
+        );
+    }
 
-        let err = server.handle_get(params).await.unwrap_err();
-        let msg = format!("{err:?}");
-        assert!(msg.contains("does not support get") || msg.contains("snippet_match"));
+    /// Test: notes/reason with unignore is rejected before any HTTP call.
+    #[tokio::test]
+    async fn handle_update_issue_unignore_with_notes_is_rejected() {
+        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
+        let server = FossaServer::new(client);
+
+        let err = server
+            .handle_update(UpdateCommand::Issue(issue_params(false, true)))
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("only apply when ignoring"), "{err:?}");
     }
 }

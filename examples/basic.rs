@@ -38,7 +38,10 @@ async fn main() -> fossapi::Result<()> {
         let project = Project::get(&client, first_project.id.clone()).await?;
         println!("Project: {}", project.title);
         println!("  ID: {}", project.id);
-        println!("  Type: {}", project.project_type.as_deref().unwrap_or("unknown"));
+        println!(
+            "  Type: {}",
+            project.project_type.as_deref().unwrap_or("unknown")
+        );
         println!("  Public: {}", project.public);
         println!("  Issues: {:?}", project.issues);
 
@@ -51,7 +54,13 @@ async fn main() -> fossapi::Result<()> {
             let ref_name = rev.ref_from_locator().unwrap_or("unknown");
             let resolved = if rev.resolved { "resolved" } else { "pending" };
             let issues = rev.unresolved_issue_count.unwrap_or(0);
-            println!("  {}. {} - {} ({} issues)", i + 1, ref_name, resolved, issues);
+            println!(
+                "  {}. {} - {} ({} issues)",
+                i + 1,
+                ref_name,
+                resolved,
+                issues
+            );
         }
 
         // Get the first revision and show its dependencies
@@ -82,7 +91,7 @@ async fn main() -> fossapi::Result<()> {
                 } else {
                     String::new()
                 };
-                println!("  - {}@{}{}", name, version, issues);
+                println!("  - {name}@{version}{issues}");
             }
         }
     }

@@ -76,7 +76,8 @@ mod tests {
             ]
         }"#;
 
-        let issue: Issue = serde_json::from_str(json).expect("Failed to deserialize vulnerability issue");
+        let issue: Issue =
+            serde_json::from_str(json).expect("Failed to deserialize vulnerability issue");
 
         assert_eq!(issue.id, 27);
         assert_eq!(issue.issue_type, "vulnerability");
@@ -189,7 +190,8 @@ mod tests {
             "url": "https://app.fossa.com/issues/licensing/42"
         }"#;
 
-        let issue: Issue = serde_json::from_str(json).expect("Failed to deserialize licensing issue");
+        let issue: Issue =
+            serde_json::from_str(json).expect("Failed to deserialize licensing issue");
 
         assert_eq!(issue.id, 42);
         assert_eq!(issue.issue_type, "licensing");
@@ -261,8 +263,8 @@ mod tests {
             "analyzedAt": "2026-04-10T16:09:30.488Z"
         }"#;
 
-        let project =
-            serde_json::from_str::<IssueProject>(json).expect("Failed to deserialize issue project");
+        let project = serde_json::from_str::<IssueProject>(json)
+            .expect("Failed to deserialize issue project");
 
         assert_eq!(project.id, "custom+58216/testproject/withslash");
         assert_eq!(project.status.as_deref(), Some("active"));
@@ -321,7 +323,8 @@ mod tests {
     #[test]
     fn test_issue_depths_default() {
         let json = r#"{}"#;
-        let depths: IssueDepths = serde_json::from_str(json).expect("Failed to deserialize empty depths");
+        let depths: IssueDepths =
+            serde_json::from_str(json).expect("Failed to deserialize empty depths");
 
         assert_eq!(depths.direct, 0);
         assert_eq!(depths.deep, 0);
@@ -330,7 +333,8 @@ mod tests {
     #[test]
     fn test_issue_statuses_deserialize() {
         let json = r#"{"active": 5, "ignored": 2}"#;
-        let statuses: IssueStatuses = serde_json::from_str(json).expect("Failed to deserialize statuses");
+        let statuses: IssueStatuses =
+            serde_json::from_str(json).expect("Failed to deserialize statuses");
 
         assert_eq!(statuses.active, 5);
         assert_eq!(statuses.ignored, 2);
@@ -346,7 +350,7 @@ mod tests {
         let serialized = serde_qs::to_string(&query).expect("Failed to serialize query");
 
         // Empty query should serialize to empty string (no fields set)
-        assert!(serialized.is_empty() || serialized == "");
+        assert!(serialized.is_empty() || serialized.is_empty());
     }
 
     #[test]
@@ -401,7 +405,10 @@ mod tests {
                 package_manager: Some("npm".to_string()),
             },
             depths: IssueDepths::default(),
-            statuses: IssueStatuses { active: 3, ignored: 1 },
+            statuses: IssueStatuses {
+                active: 3,
+                ignored: 1,
+            },
             projects: vec![],
             url: None,
             vuln_id: None,
@@ -569,8 +576,14 @@ mod tests {
         let cases = [
             (IssueIgnoreReason::Fixed, "Fixed"),
             (IssueIgnoreReason::UnderInvestigation, "Under_investigation"),
-            (IssueIgnoreReason::IncorrectDataFound, "incorrect_data_found"),
-            (IssueIgnoreReason::ComponentNotPresent, "Component_not_present"),
+            (
+                IssueIgnoreReason::IncorrectDataFound,
+                "incorrect_data_found",
+            ),
+            (
+                IssueIgnoreReason::ComponentNotPresent,
+                "Component_not_present",
+            ),
             (
                 IssueIgnoreReason::VulnerableCodeNotPresent,
                 "Vulnerable_code_not_present",
@@ -687,7 +700,6 @@ pub struct Issue {
     pub url: Option<String>,
 
     // --- Vulnerability-specific fields ---
-
     /// Vulnerability ID (e.g., "CVE-2018-16487_npm+lodash").
     #[serde(default)]
     pub vuln_id: Option<String>,
@@ -759,13 +771,11 @@ pub struct Issue {
     pub cve_status: Option<String>,
 
     // --- Licensing-specific fields ---
-
     /// License identifier (e.g., "GPL-3.0").
     #[serde(default)]
     pub license: Option<String>,
 
     // --- Quality-specific fields ---
-
     /// Quality rule details.
     #[serde(default)]
     pub quality_rule: Option<serde_json::Value>,
@@ -1284,35 +1294,53 @@ impl Update for Issue {
 
     /// Ignore or un-ignore an issue, then return its refreshed state.
     ///
-    /// Sends `PUT /v2/issues/` targeting this single issue. The API applies
-    /// actions only to rows matching a status filter, so ignore targets
-    /// `active` rows and unignore targets `ignored` rows; a `count` of 0 means
-    /// nothing matched (wrong category, no access, or the issue is already in
-    /// the requested state) and is surfaced as an error rather than silently
-    /// succeeding.
+    /// The server's `PUT /v2/issues/` is an unguarded upsert when targeting by
+    /// ID: re-ignoring an already-ignored issue silently overwrites its notes
+    /// and reason and resets its ignored-at timestamp. To keep that
+    /// intentional, this first fetches the issue and refuses actions whose
+    /// target state already holds everywhere — mirroring the web UI, which
+    /// only offers Ignore on active issues and Unignore on ignored ones. To
+    /// change an existing ignore's notes or reason, unignore first, then
+    /// re-ignore.
+    ///
+    /// Statuses are an org-wide rollup, so a partially ignored issue (ignored
+    /// in one project, active in another) accepts both actions, like the UI's
+    /// global issue view; the server applies the action to every project.
+    ///
+    /// A `count` of 0 from the server means the issue wasn't visible to the
+    /// token (the pre-flight fetch already rules out a wrong ID or category).
     ///
     /// Requires a full API token: push-only tokens cannot write issues.
     #[tracing::instrument(skip(client))]
     async fn update(client: &FossaClient, id: u64, params: IssueUpdateParams) -> Result<Self> {
-        let status = match params.action {
-            IssueAction::Ignore { .. } => "active",
-            IssueAction::Unignore => "ignored",
-        };
+        let current = Issue::get_with_category(client, id, params.category).await?;
+        match params.action {
+            IssueAction::Ignore { .. } if current.statuses.active == 0 => {
+                return Err(FossaError::InvalidParams(format!(
+                    "issue {id} is already ignored; unignore it first to change \
+                     its notes or reason"
+                )));
+            }
+            IssueAction::Unignore if current.statuses.ignored == 0 => {
+                return Err(FossaError::InvalidParams(format!(
+                    "issue {id} is not ignored; there is nothing to unignore"
+                )));
+            }
+            _ => {}
+        }
+
         let path = format!(
-            "v2/issues/?category={}&status={status}&ids[]={id}",
+            "v2/issues/?category={}&ids[]={id}",
             params.category.as_str()
         );
 
         let response = client.put(&path, &params.action).await?;
-        let result: IssueActionResponse =
-            response.json().await.map_err(FossaError::HttpError)?;
+        let result: IssueActionResponse = response.json().await.map_err(FossaError::HttpError)?;
 
         if result.count == 0 {
             return Err(FossaError::ApiError {
                 message: format!(
-                    "no {status} {} issue matched ID {id}; it may not exist, be outside \
-                     your token's access, or already be in the requested state",
-                    params.category.as_str()
+                    "issue {id} was not modified; it may not be visible to this token"
                 ),
                 status_code: None,
             });

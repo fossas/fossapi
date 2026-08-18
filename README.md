@@ -97,6 +97,12 @@ Ignoring supports an optional `--notes` free-text comment and a `--reason`
 `inline-mitigations-already-exist`, `other`). Issue writes require a full API
 token; push-only tokens can only read.
 
+Ignoring an issue that is already fully ignored fails with a prompt to
+unignore it first — changing an existing ignore's notes is a deliberate
+two-step (`--unignore`, then `--ignore --notes ...`), matching the web UI. An
+issue ignored in some projects but active in others accepts both actions,
+which then apply org-wide.
+
 ### Snippets
 
 Snippet scanning finds third-party (open-source) code copied into your
@@ -114,8 +120,9 @@ fossapi list snippets "custom+1/my-project\$abc123" --path /src
 # Show the file/directory tree where snippets were detected
 fossapi list snippet-paths "custom+1/my-project\$abc123"
 
-# Flat report: every match location (first-party file -> matched package)
-fossapi list snippet-locations "custom+1/my-project\$abc123"
+# Flat report: every match location (first-party file -> matched package).
+# Paginated over snippets: each page returns every location of --count snippets.
+fossapi list snippet-locations "custom+1/my-project\$abc123" --page 1 --count 20
 
 # ...and resolve the first-party line range for each match (extra API calls)
 fossapi list snippet-locations "custom+1/my-project\$abc123" --with-lines
@@ -168,17 +175,49 @@ Add to your MCP config:
 
 ### Available Tools
 
-| Tool | Description |
-|------|-------------|
-| `get` | Fetch a single project, revision, or issue by ID |
-| `list` | List projects, revisions, dependencies, issues, or snippet match locations |
-| `update` | Update project metadata (title, description, url, public), or ignore/unignore an issue (with optional notes and reason) |
-| `snippet_match` | Drill into one snippet match: the matched first-party and reference code |
+The MCP tools mirror the CLI verbs exactly: each tool takes an `entity`
+discriminator naming the subcommand, plus that subcommand's arguments (the
+input schemas are generated from the same declarations the CLI parses into).
 
-> **Snippets over MCP:** use `list` with `entity: snippet` and `parent: <revision
-> locator>` (optional `path` and `with_lines`) to map third-party matches to
-> first-party files, then `snippet_match` to drill into a single match. Snippets
-> don't support `get` or `update`.
+| Tool | Entities |
+|------|----------|
+| `get` | `project`, `revision`, `issue` (category optional — omitted probes all three), `snippet`, `snippet_match` |
+| `list` | `projects`, `issues` (category required), `dependencies`, `revisions`, `snippets`, `snippet_locations`, `snippet_paths` |
+| `update` | `project` (title, description, url, public, policy_id, default_branch), `issue` (ignore/unignore with optional notes and reason; category required) |
+
+For example, `fossapi get issue 12345 --category licensing` is
+`get {"entity": "issue", "id": 12345, "category": "licensing"}` over MCP, and
+`fossapi update issue 12345 --category licensing --ignore --notes "false positive patch"`
+is `update {"entity": "issue", "id": 12345, "category": "licensing", "ignore": true, "notes": "false positive patch"}`.
+
+> **Snippets over MCP:** use `list` with `entity: snippet_locations` and
+> `revision: <revision locator>` (optional `path` and `with_lines`) to map
+> third-party matches to first-party files, then `get` with
+> `entity: snippet_match` to drill into a single match.
+
+Paged list operations take `page` and `count` (defaults 1 and 20; values are
+clamped to at least 1 and `count` to at most 100). `snippet_locations` pages
+over the underlying snippets, so one page can hold more or fewer rows than
+`count`.
+
+### Migrating to the unified surface
+
+The CLI/MCP unification changed the MCP arg shapes (breaking for saved call
+configs; live clients pick the new shapes up automatically from `tools/list`):
+
+- Per-entity fields replace the old generic `parent`/string `id` — e.g.
+  `get {"entity": "issue", "id": 12345}` (numeric id),
+  `list {"entity": "revisions", "project": "custom+1/my-project"}`.
+- List entities are plural (`projects`, `issues`, …), matching the CLI.
+- The standalone `snippet_match` tool folded into
+  `get {"entity": "snippet_match", ...}`.
+- `list {"entity": "snippet_locations", ...}` is now paginated and returns a
+  page object (`items`/`page`/`count`/`total`/`has_more`) instead of a bare
+  array.
+
+On the CLI, `list dependencies` now takes the revision positionally only
+(`--revision` was removed). Calls using the old shapes fail with an error that
+points back to this section.
 
 ## Locators
 

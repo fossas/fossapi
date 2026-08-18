@@ -41,7 +41,10 @@ impl PrettyPrint for Project {
         }
 
         if let Some(ref scanned) = self.scanned {
-            lines.push(format!("Scanned:        {}", scanned.format("%Y-%m-%d %H:%M:%S UTC")));
+            lines.push(format!(
+                "Scanned:        {}",
+                scanned.format("%Y-%m-%d %H:%M:%S UTC")
+            ));
         }
 
         if self.public {
@@ -59,7 +62,10 @@ impl PrettyPrint for Revision {
         let mut lines = vec![
             format!("Revision: {}", self.locator),
             divider,
-            format!("Resolved:       {}", if self.resolved { "yes" } else { "no" }),
+            format!(
+                "Resolved:       {}",
+                if self.resolved { "yes" } else { "no" }
+            ),
         ];
 
         if let Some(ref source) = self.source {
@@ -71,7 +77,10 @@ impl PrettyPrint for Revision {
         }
 
         if let Some(ref created) = self.created_at {
-            lines.push(format!("Created:        {}", created.format("%Y-%m-%d %H:%M:%S UTC")));
+            lines.push(format!(
+                "Created:        {}",
+                created.format("%Y-%m-%d %H:%M:%S UTC")
+            ));
         }
 
         if let Some(count) = self.unresolved_issue_count {

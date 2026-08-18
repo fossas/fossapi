@@ -213,7 +213,10 @@ mod tests {
     #[test]
     fn test_with_default_path_fills_root() {
         assert_eq!(
-            SnippetListQuery::default().with_default_path().path.as_deref(),
+            SnippetListQuery::default()
+                .with_default_path()
+                .path
+                .as_deref(),
             Some("/")
         );
         assert_eq!(
@@ -786,11 +789,9 @@ pub async fn get_snippet_match(
     let encoded_locator = urlencoding::encode(revision_locator);
     let encoded_id = urlencoding::encode(snippet_id);
     let encoded_path = urlencoding::encode(match_path);
-    let path =
-        format!("revisions/{encoded_locator}/snippets/{encoded_id}/matches/{encoded_path}");
+    let path = format!("revisions/{encoded_locator}/snippets/{encoded_id}/matches/{encoded_path}");
     let response = client.get(&path).await?;
-    let data: SnippetMatchDetailsResponse =
-        response.json().await.map_err(FossaError::HttpError)?;
+    let data: SnippetMatchDetailsResponse = response.json().await.map_err(FossaError::HttpError)?;
     Ok(data.match_details)
 }
 
@@ -813,9 +814,43 @@ pub async fn get_snippet_locations(
     with_lines: bool,
 ) -> Result<Vec<SnippetLocation>> {
     let snippets = get_snippets(client, revision_locator, query).await?;
+    build_locations(client, revision_locator, &snippets, with_lines).await
+}
 
+/// Paged variant of [`get_snippet_locations`].
+///
+/// Pagination is over the underlying *snippets*, not the emitted locations:
+/// each page fetches `count` snippets and returns every location they contain,
+/// so a page can hold more (or fewer) than `count` locations. `total` and
+/// `has_more` likewise describe the snippet listing.
+pub async fn get_snippet_locations_page(
+    client: &FossaClient,
+    revision_locator: &str,
+    query: SnippetListQuery,
+    with_lines: bool,
+    page: u32,
+    count: u32,
+) -> Result<Page<SnippetLocation>> {
+    let snippet_page = get_snippets_page(client, revision_locator, query, page, count).await?;
+    let locations =
+        build_locations(client, revision_locator, &snippet_page.items, with_lines).await?;
+    Ok(Page {
+        items: locations,
+        total: snippet_page.total,
+        page: snippet_page.page,
+        count: snippet_page.count,
+        has_more: snippet_page.has_more,
+    })
+}
+
+async fn build_locations(
+    client: &FossaClient,
+    revision_locator: &str,
+    snippets: &[Snippet],
+    with_lines: bool,
+) -> Result<Vec<SnippetLocation>> {
     let mut locations = Vec::new();
-    for snippet in &snippets {
+    for snippet in snippets {
         let details = get_snippet_details(client, revision_locator, &snippet.id).await?;
         let licenses = details.license_ids();
         for m in &details.matches {
