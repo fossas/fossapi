@@ -99,8 +99,9 @@ fossapi list snippets "custom+1/my-project\$abc123" --path /src
 # Show the file/directory tree where snippets were detected
 fossapi list snippet-paths "custom+1/my-project\$abc123"
 
-# Flat report: every match location (first-party file -> matched package)
-fossapi list snippet-locations "custom+1/my-project\$abc123"
+# Flat report: every match location (first-party file -> matched package).
+# Paginated over snippets: each page returns every location of --count snippets.
+fossapi list snippet-locations "custom+1/my-project\$abc123" --page 1 --count 20
 
 # ...and resolve the first-party line range for each match (extra API calls)
 fossapi list snippet-locations "custom+1/my-project\$abc123" --with-lines
@@ -170,6 +171,30 @@ For example, `fossapi get issue 12345 --category licensing` is
 > `revision: <revision locator>` (optional `path` and `with_lines`) to map
 > third-party matches to first-party files, then `get` with
 > `entity: snippet_match` to drill into a single match.
+
+Paged list operations take `page` and `count` (defaults 1 and 20; values are
+clamped to at least 1 and `count` to at most 100). `snippet_locations` pages
+over the underlying snippets, so one page can hold more or fewer rows than
+`count`.
+
+### Migrating to 0.4
+
+0.4.0 changed the MCP arg shapes (breaking for saved call configs; live
+clients pick the new shapes up automatically from `tools/list`):
+
+- Per-entity fields replace the old generic `parent`/string `id` — e.g.
+  `get {"entity": "issue", "id": 12345}` (numeric id),
+  `list {"entity": "revisions", "project": "custom+1/my-project"}`.
+- List entities are plural (`projects`, `issues`, …), matching the CLI.
+- The standalone `snippet_match` tool folded into
+  `get {"entity": "snippet_match", ...}`.
+- `list {"entity": "snippet_locations", ...}` is now paginated and returns a
+  page object (`items`/`page`/`count`/`total`/`has_more`) instead of a bare
+  array.
+
+On the CLI, `list dependencies` now takes the revision positionally only
+(`--revision` was removed). Calls using the old shapes fail with an error that
+points back to this section.
 
 ## Locators
 

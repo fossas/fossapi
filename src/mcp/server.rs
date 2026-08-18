@@ -120,11 +120,29 @@ impl FossaServer {
                 McpError::resource_not_found(format!("{entity_type} '{id}' not found"), None)
             }
             FossaError::ConfigMissing(msg) => McpError::invalid_params(msg.clone(), None),
+            FossaError::InvalidParams(msg) => McpError::invalid_params(msg.clone(), None),
             FossaError::InvalidLocator(loc) => {
                 McpError::invalid_params(format!("Invalid locator: {loc}"), None)
             }
             _ => McpError::internal_error(err.to_string(), None),
         }
+    }
+
+    /// Append a migration hint when failed args look like the pre-0.4 shape
+    /// (generic `parent` field / string `id`). Remove at 1.0.
+    fn describe_args_error(err: serde_json::Error, args: &serde_json::Value) -> McpError {
+        let legacy = args.get("parent").is_some()
+            || matches!(args.get("id"), Some(serde_json::Value::String(_)));
+        let msg = if legacy {
+            format!(
+                "{err} — note: arg shapes changed in 0.4.0: per-entity fields \
+                 replace the generic `parent`/string `id` (see the README's \
+                 migration notes, or re-read this tool's input schema)"
+            )
+        } else {
+            err.to_string()
+        };
+        McpError::invalid_params(msg, None)
     }
 
     /// Serialize an operation result into a tool response.
@@ -209,18 +227,18 @@ impl ServerHandler for FossaServer {
 
         match request.name.as_ref() {
             "get" => {
-                let command: GetCommand = serde_json::from_value(args)
-                    .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+                let command: GetCommand = serde_json::from_value(args.clone())
+                    .map_err(|e| Self::describe_args_error(e, &args))?;
                 self.handle_get(command).await
             }
             "list" => {
-                let command: ListCommand = serde_json::from_value(args)
-                    .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+                let command: ListCommand = serde_json::from_value(args.clone())
+                    .map_err(|e| Self::describe_args_error(e, &args))?;
                 self.handle_list(command).await
             }
             "update" => {
-                let command: UpdateCommand = serde_json::from_value(args)
-                    .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+                let command: UpdateCommand = serde_json::from_value(args.clone())
+                    .map_err(|e| Self::describe_args_error(e, &args))?;
                 self.handle_update(command).await
             }
             other => Err(McpError::invalid_params(
@@ -721,7 +739,10 @@ mod tests {
 
         Mock::given(method("GET"))
             .and(path("/revisions/custom%2Borg%2Frepo%24main/snippets"))
+            .and(query_param("page", "1"))
+            .and(query_param("pageSize", "20"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&list_body))
+            .expect(1)
             .mount(&mock_server)
             .await;
 
@@ -765,7 +786,10 @@ mod tests {
 
         Mock::given(method("GET"))
             .and(path("/revisions/custom%2Borg%2Frepo%24main/snippets"))
+            .and(query_param("page", "1"))
+            .and(query_param("pageSize", "20"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&list_body))
+            .expect(1)
             .mount(&mock_server)
             .await;
         Mock::given(method("GET"))
@@ -782,13 +806,53 @@ mod tests {
                 revision: "custom+org/repo$main".to_string(),
                 path: None,
                 with_lines: false,
+                pagination: PageArgs::default(),
             }))
             .await
             .unwrap();
         assert!(!result.is_error.unwrap_or(false));
-        let text = response_text(&result);
-        assert!(text.contains("/src/a.rs"));
-        assert!(text.contains("\"snippet_id\": \"55\""));
+        let page: serde_json::Value = serde_json::from_str(response_text(&result)).unwrap();
+        assert_eq!(page["items"][0]["path"], "/src/a.rs");
+        assert_eq!(page["items"][0]["snippet_id"], "55");
+        assert_eq!(page["page"], 1);
+    }
+
+    /// Test: update with no fields is rejected before any HTTP call.
+    #[tokio::test]
+    async fn handle_update_project_without_fields_is_rejected() {
+        let mock_server = MockServer::start().await;
+        // No PUT mock mounted: a request would fail the test via connection to
+        // an unmatched route below anyway, but the point is we never get there.
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let err = server
+            .handle_update(UpdateCommand::Project(UpdateProjectParams {
+                locator: "custom+acme/myapp".to_string(),
+                title: None,
+                description: None,
+                url: None,
+                public: None,
+                policy_id: None,
+                default_branch: None,
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("at least one field"), "{err:?}");
+    }
+
+    /// Test: pre-0.4 arg shapes get a migration hint appended to the error.
+    #[tokio::test]
+    async fn call_tool_legacy_args_get_migration_hint() {
+        let err = FossaServer::describe_args_error(
+            serde_json::from_value::<GetCommand>(
+                serde_json::json!({"entity": "issue", "id": "123", "parent": "x"}),
+            )
+            .unwrap_err(),
+            &serde_json::json!({"entity": "issue", "id": "123", "parent": "x"}),
+        );
+        assert!(err.message.contains("arg shapes changed"), "{err:?}");
     }
 
     /// Test: get(entity: snippet) returns snippet details with matches.

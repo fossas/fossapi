@@ -95,16 +95,9 @@ fn output_list(output: &ListOutput, json: bool) -> fossapi::Result<()> {
         ListOutput::Dependencies(page) => output_page(page, json, |d| DependencyRow::from(d)),
         ListOutput::Revisions(page) => output_page(page, json, |r| RevisionRow::from(r)),
         ListOutput::Snippets(page) => output_page(page, json, |s| SnippetRow::from(s)),
-        ListOutput::SnippetLocations(locations) => {
-            if json {
-                println!("{}", serde_json::to_string_pretty(locations)?);
-            } else {
-                let rows: Vec<SnippetLocationRow> =
-                    locations.iter().map(SnippetLocationRow::from).collect();
-                println!("{}", Table::new(rows));
-                println!("\n{} match location(s)", locations.len());
-            }
-            Ok(())
+        // Page numbers/totals count the underlying snippets, not the rows.
+        ListOutput::SnippetLocations(page) => {
+            output_page(page, json, |l| SnippetLocationRow::from(l))
         }
         ListOutput::SnippetPaths(paths) => {
             if json {

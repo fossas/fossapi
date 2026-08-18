@@ -170,9 +170,43 @@ fn test_mcp_get_issue_with_invalid_id_is_rejected_at_deserialization() {
     }))
     .unwrap_err();
     assert!(
-        err.to_string().contains("id") || err.to_string().contains("u64"),
-        "Error should mention the invalid id: {err}"
+        err.to_string().contains("invalid type: string") && err.to_string().contains("u64"),
+        "Error should name the type mismatch (string where u64 expected): {err}"
     );
+}
+
+/// The snippet wire format deserializes with its per-entity fields intact.
+#[test]
+fn test_mcp_get_snippet_wire_format_deserializes() {
+    let command = get_command(serde_json::json!({
+        "entity": "snippet",
+        "revision": "custom+123/test$main",
+        "snippet": "55"
+    }))
+    .unwrap();
+    let GetCommand::Snippet(p) = command else {
+        panic!("expected Snippet variant");
+    };
+    assert_eq!(p.revision, "custom+123/test$main");
+    assert_eq!(p.snippet, "55");
+}
+
+/// The snippet_match wire format deserializes with its per-entity fields intact.
+#[test]
+fn test_mcp_get_snippet_match_wire_format_deserializes() {
+    let command = get_command(serde_json::json!({
+        "entity": "snippet_match",
+        "revision": "custom+123/test$main",
+        "snippet": "55",
+        "path": "/src/a.rs"
+    }))
+    .unwrap();
+    let GetCommand::SnippetMatch(p) = command else {
+        panic!("expected SnippetMatch variant");
+    };
+    assert_eq!(p.revision, "custom+123/test$main");
+    assert_eq!(p.snippet, "55");
+    assert_eq!(p.path, "/src/a.rs");
 }
 
 /// Category is optional for get issue: omitting it probes every category,

@@ -814,9 +814,43 @@ pub async fn get_snippet_locations(
     with_lines: bool,
 ) -> Result<Vec<SnippetLocation>> {
     let snippets = get_snippets(client, revision_locator, query).await?;
+    build_locations(client, revision_locator, &snippets, with_lines).await
+}
 
+/// Paged variant of [`get_snippet_locations`].
+///
+/// Pagination is over the underlying *snippets*, not the emitted locations:
+/// each page fetches `count` snippets and returns every location they contain,
+/// so a page can hold more (or fewer) than `count` locations. `total` and
+/// `has_more` likewise describe the snippet listing.
+pub async fn get_snippet_locations_page(
+    client: &FossaClient,
+    revision_locator: &str,
+    query: SnippetListQuery,
+    with_lines: bool,
+    page: u32,
+    count: u32,
+) -> Result<Page<SnippetLocation>> {
+    let snippet_page = get_snippets_page(client, revision_locator, query, page, count).await?;
+    let locations =
+        build_locations(client, revision_locator, &snippet_page.items, with_lines).await?;
+    Ok(Page {
+        items: locations,
+        total: snippet_page.total,
+        page: snippet_page.page,
+        count: snippet_page.count,
+        has_more: snippet_page.has_more,
+    })
+}
+
+async fn build_locations(
+    client: &FossaClient,
+    revision_locator: &str,
+    snippets: &[Snippet],
+    with_lines: bool,
+) -> Result<Vec<SnippetLocation>> {
     let mut locations = Vec::new();
-    for snippet in &snippets {
+    for snippet in snippets {
         let details = get_snippet_details(client, revision_locator, &snippet.id).await?;
         let licenses = details.license_ids();
         for m in &details.matches {

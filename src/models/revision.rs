@@ -241,7 +241,7 @@ impl List for Revision {
             .collect();
 
         // Sort by created_at descending (newest first)
-        all_revisions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        all_revisions.sort_by_key(|r| std::cmp::Reverse(r.created_at));
 
         let total = all_revisions.len() as u64;
 

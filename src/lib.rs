@@ -125,6 +125,6 @@ pub use models::{get_dependencies, get_dependencies_page};
 pub use models::{get_issues, get_issues_page, get_project_issues};
 pub use models::{get_revision, get_revisions, get_revisions_page};
 pub use models::{
-    get_snippet_details, get_snippet_locations, get_snippet_match, get_snippet_paths, get_snippets,
-    get_snippets_page,
+    get_snippet_details, get_snippet_locations, get_snippet_locations_page, get_snippet_match,
+    get_snippet_paths, get_snippets, get_snippets_page,
 };

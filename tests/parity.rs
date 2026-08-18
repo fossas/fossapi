@@ -171,15 +171,26 @@ fn tagged_payloads_round_trip() {
         "id": 12345
     }))
     .expect("get payload deserializes");
-    assert!(matches!(get, GetCommand::Issue(_)));
+    let GetCommand::Issue(p) = get else {
+        panic!("expected Issue variant");
+    };
+    assert_eq!(p.id, 12345);
+    assert_eq!(p.category, None);
 
     let list: ListCommand = serde_json::from_value(serde_json::json!({
         "entity": "snippet_locations",
         "revision": "custom+org/repo$main",
-        "with_lines": true
+        "with_lines": true,
+        "page": 2
     }))
     .expect("list payload deserializes");
-    assert!(matches!(list, ListCommand::SnippetLocations(_)));
+    let ListCommand::SnippetLocations(p) = list else {
+        panic!("expected SnippetLocations variant");
+    };
+    assert_eq!(p.revision, "custom+org/repo$main");
+    assert!(p.with_lines);
+    assert_eq!(p.pagination.page, Some(2));
+    assert_eq!(p.pagination.count, None);
 
     let update: UpdateCommand = serde_json::from_value(serde_json::json!({
         "entity": "project",
@@ -187,5 +198,8 @@ fn tagged_payloads_round_trip() {
         "title": "New Title"
     }))
     .expect("update payload deserializes");
-    assert!(matches!(update, UpdateCommand::Project(_)));
+    let UpdateCommand::Project(p) = update;
+    assert_eq!(p.locator, "custom+org/repo");
+    assert_eq!(p.title.as_deref(), Some("New Title"));
+    assert_eq!(p.description, None);
 }

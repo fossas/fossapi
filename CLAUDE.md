@@ -150,8 +150,11 @@ verb's `run_*` fn, and an output-enum variant. Both surfaces pick it up with
 no surface-specific code; a missing arm is a compile error. `tests/parity.rs`
 guards the rest (tool list == verbs, clap subcommands == schema entities,
 clap args == schema properties) — never add a `#[serde(skip)]`/`#[clap(skip)]`
-to these types without checking it. Pagination policy (defaults, count ≤ 100)
-lives only in `PageArgs::resolve`.
+to these types without checking it. Pagination policy — defaults plus the
+global clamp (page ≥ 1, 1 ≤ count ≤ 100) — lives only in `PageArgs::resolve`.
+Per-endpoint bounds (issues min count 5, snippet pageSize ≤ 50) are enforced
+by the API/model layer today; encoding them into the declarations so schemas
+advertise them is issue #41.
 
 ## Models
 

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::PageArgs;
 use crate::{
-    get_dependencies_page, get_issues_page, get_revisions_page, get_snippet_locations,
+    get_dependencies_page, get_issues_page, get_revisions_page, get_snippet_locations_page,
     get_snippet_paths, get_snippets_page, Dependency, FossaClient, Issue, IssueCategory,
     IssueListQuery, List, Page, Project, Result, Revision, Snippet, SnippetListQuery,
     SnippetLocation, SnippetPath,
@@ -88,6 +88,12 @@ pub struct ListSnippetLocationsParams {
     #[arg(long)]
     #[serde(default)]
     pub with_lines: bool,
+
+    /// Pagination (over the underlying snippets; each page returns every
+    /// location its snippets contain).
+    #[command(flatten)]
+    #[serde(flatten)]
+    pub pagination: PageArgs,
 }
 
 /// Parameters for `list snippet-paths`.
@@ -146,8 +152,8 @@ pub enum ListOutput {
     Revisions(Page<Revision>),
     /// A page of snippets.
     Snippets(Page<Snippet>),
-    /// Flattened snippet match locations (not paginated).
-    SnippetLocations(Vec<SnippetLocation>),
+    /// A page of flattened snippet match locations (paginated over snippets).
+    SnippetLocations(Page<SnippetLocation>),
     /// The snippet path tree at one level (not paginated).
     SnippetPaths(Vec<SnippetPath>),
 }
@@ -190,12 +196,14 @@ pub async fn run_list(client: &FossaClient, command: ListCommand) -> Result<List
             ListOutput::Snippets(get_snippets_page(client, &p.revision, query, page, count).await?)
         }
         ListCommand::SnippetLocations(p) => {
+            let (page, count) = p.pagination.resolve();
             let query = SnippetListQuery {
                 path: p.path,
                 ..Default::default()
             };
             ListOutput::SnippetLocations(
-                get_snippet_locations(client, &p.revision, query, p.with_lines).await?,
+                get_snippet_locations_page(client, &p.revision, query, p.with_lines, page, count)
+                    .await?,
             )
         }
         ListCommand::SnippetPaths(p) => {

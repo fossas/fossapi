@@ -57,13 +57,16 @@ impl PageArgs {
     /// Hard cap on page size.
     pub const MAX_COUNT: u32 = 100;
 
-    /// Resolve to a concrete `(page, count)`, applying defaults and the cap.
+    /// Resolve to a concrete `(page, count)`, applying defaults and clamping
+    /// to `1..=MAX_COUNT`. The floor matters: offset math downstream computes
+    /// `(page - 1) * count` on unsigned ints, so an explicit `page: 0` must
+    /// never pass through.
     pub fn resolve(self) -> (u32, u32) {
         (
-            self.page.unwrap_or(1),
+            self.page.unwrap_or(1).max(1),
             self.count
                 .unwrap_or(Self::DEFAULT_COUNT)
-                .min(Self::MAX_COUNT),
+                .clamp(1, Self::MAX_COUNT),
         )
     }
 }
@@ -84,5 +87,14 @@ mod tests {
             count: Some(500),
         };
         assert_eq!(args.resolve(), (3, 100));
+    }
+
+    #[test]
+    fn page_args_resolve_clamps_zero_to_floor() {
+        let args = PageArgs {
+            page: Some(0),
+            count: Some(0),
+        };
+        assert_eq!(args.resolve(), (1, 1));
     }
 }

@@ -13,6 +13,10 @@ pub enum FossaError {
     #[error("Invalid locator '{0}': expected format like 'custom+org/project$revision'")]
     InvalidLocator(String),
 
+    /// Invalid operation parameters.
+    #[error("Invalid parameters: {0}")]
+    InvalidParams(String),
+
     /// Entity not found.
     #[error("{entity_type} '{id}' not found")]
     NotFound {

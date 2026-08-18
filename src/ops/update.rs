@@ -4,7 +4,7 @@ use clap::{Args, Subcommand};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{FossaClient, PrettyPrint, Project, ProjectUpdateParams, Result, Update};
+use crate::{FossaClient, FossaError, PrettyPrint, Project, ProjectUpdateParams, Result, Update};
 
 /// Parameters for `update project`.
 #[derive(Args, Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
@@ -66,6 +66,19 @@ impl PrettyPrint for UpdateOutput {
 pub async fn run_update(client: &FossaClient, command: UpdateCommand) -> Result<UpdateOutput> {
     Ok(match command {
         UpdateCommand::Project(p) => {
+            if p.title.is_none()
+                && p.description.is_none()
+                && p.url.is_none()
+                && p.public.is_none()
+                && p.policy_id.is_none()
+                && p.default_branch.is_none()
+            {
+                return Err(FossaError::InvalidParams(
+                    "update project requires at least one field to change \
+                     (title, description, url, public, policy_id, default_branch)"
+                        .to_string(),
+                ));
+            }
             let params = ProjectUpdateParams {
                 title: p.title,
                 description: p.description,
