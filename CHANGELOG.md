@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-08-18)
 
 The CLI and MCP server now share one set of operation declarations (`src/ops/`),
 so the two surfaces expose identical operations with identical parameters.
