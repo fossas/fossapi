@@ -85,9 +85,12 @@ pub use models::{
     DependencyQuery,
     // Issue types
     Issue,
+    IssueAction,
+    IssueActionResponse,
     IssueCategory,
     IssueDepths,
     IssueEpss,
+    IssueIgnoreReason,
     IssueListQuery,
     IssueMetric,
     IssueProject,
@@ -96,6 +99,7 @@ pub use models::{
     IssueStatus,
     IssueStatuses,
     IssueType,
+    IssueUpdateParams,
     // Project types
     LatestRevision,
     LicenseInfo,

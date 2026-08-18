@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::client::FossaClient;
 use crate::error::{FossaError, Result};
 use crate::pagination::Page;
-use crate::traits::{Get, List};
+use crate::traits::{Get, List, Update};
 
 // =============================================================================
 // TESTS FIRST (TDD Red Phase)
@@ -535,6 +535,103 @@ mod tests {
             IssueCategory::Quality
         ));
     }
+
+    #[test]
+    fn test_issue_action_ignore_serializes_full() {
+        let action = IssueAction::Ignore {
+            notes: Some("false positive patch".to_string()),
+            reason: Some(IssueIgnoreReason::VulnerableCodeNotInExecutePath),
+        };
+        let json = serde_json::to_value(&action).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "type": "ignore",
+                "notes": "false positive patch",
+                "reason": "Vulnerable_code_not_in_execute_path"
+            })
+        );
+    }
+
+    #[test]
+    fn test_issue_action_ignore_omits_empty_fields() {
+        let action = IssueAction::Ignore {
+            notes: None,
+            reason: None,
+        };
+        let json = serde_json::to_value(&action).unwrap();
+        assert_eq!(json, serde_json::json!({"type": "ignore"}));
+    }
+
+    #[test]
+    fn test_issue_action_unignore_serializes() {
+        let json = serde_json::to_value(&IssueAction::Unignore).unwrap();
+        assert_eq!(json, serde_json::json!({"type": "unignore"}));
+    }
+
+    #[test]
+    fn test_issue_ignore_reason_api_strings() {
+        // The API matches these strings against its ResolutionReasons table;
+        // a mismatch silently records no reason, so pin every variant.
+        let cases = [
+            (IssueIgnoreReason::Fixed, "Fixed"),
+            (IssueIgnoreReason::UnderInvestigation, "Under_investigation"),
+            (
+                IssueIgnoreReason::IncorrectDataFound,
+                "incorrect_data_found",
+            ),
+            (
+                IssueIgnoreReason::ComponentNotPresent,
+                "Component_not_present",
+            ),
+            (
+                IssueIgnoreReason::VulnerableCodeNotPresent,
+                "Vulnerable_code_not_present",
+            ),
+            (
+                IssueIgnoreReason::VulnerableCodeNotInExecutePath,
+                "Vulnerable_code_not_in_execute_path",
+            ),
+            (
+                IssueIgnoreReason::VulnerableCodeCannotBeControlledByAdversary,
+                "Vulnerable_code_cannot_be_controlled_by_adversary",
+            ),
+            (
+                IssueIgnoreReason::InlineMitigationsAlreadyExist,
+                "Inline_mitigations_already_exist",
+            ),
+            (IssueIgnoreReason::Other, "other"),
+        ];
+        for (reason, expected) in cases {
+            assert_eq!(
+                serde_json::to_value(reason).unwrap(),
+                serde_json::json!(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn test_issue_action_response_single() {
+        let json = r#"{"count": 1, "issueId": 987654}"#;
+        let resp: IssueActionResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.count, 1);
+        assert_eq!(resp.issue_id, Some(987654));
+    }
+
+    #[test]
+    fn test_issue_action_response_batch_has_no_issue_id() {
+        let json = r#"{"count": 42}"#;
+        let resp: IssueActionResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.count, 42);
+        assert_eq!(resp.issue_id, None);
+    }
+
+    #[test]
+    fn test_issue_category_as_str() {
+        assert_eq!(IssueCategory::Vulnerability.as_str(), "vulnerability");
+        assert_eq!(IssueCategory::Licensing.as_str(), "licensing");
+        assert_eq!(IssueCategory::Quality.as_str(), "quality");
+    }
 }
 
 // =============================================================================
@@ -926,6 +1023,15 @@ impl IssueCategory {
         IssueCategory::Licensing,
         IssueCategory::Quality,
     ];
+
+    /// The lowercase string the API uses for this category.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            IssueCategory::Vulnerability => "vulnerability",
+            IssueCategory::Licensing => "licensing",
+            IssueCategory::Quality => "quality",
+        }
+    }
 }
 
 /// Query parameters for listing issues.
@@ -1103,4 +1209,173 @@ pub async fn get_project_issues(
         ..Default::default()
     };
     Issue::list_all(client, &query).await
+}
+
+/// Reason recorded when ignoring an issue.
+///
+/// Serialized as the exact strings the API stores; anything else is silently
+/// dropped server-side (the reason lookup returns NULL), which is why this is
+/// an enum rather than a free-form string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ValueEnum)]
+pub enum IssueIgnoreReason {
+    /// The vulnerability has been fixed.
+    #[serde(rename = "Fixed")]
+    Fixed,
+    /// Still being investigated.
+    #[serde(rename = "Under_investigation")]
+    UnderInvestigation,
+    /// The advisory data is incorrect.
+    #[serde(rename = "incorrect_data_found")]
+    IncorrectDataFound,
+    /// The affected component is not present.
+    #[serde(rename = "Component_not_present")]
+    ComponentNotPresent,
+    /// The vulnerable code is not present.
+    #[serde(rename = "Vulnerable_code_not_present")]
+    VulnerableCodeNotPresent,
+    /// The vulnerable code is never executed.
+    #[serde(rename = "Vulnerable_code_not_in_execute_path")]
+    VulnerableCodeNotInExecutePath,
+    /// The vulnerable code cannot be controlled by an adversary.
+    #[serde(rename = "Vulnerable_code_cannot_be_controlled_by_adversary")]
+    VulnerableCodeCannotBeControlledByAdversary,
+    /// Inline mitigations already exist.
+    #[serde(rename = "Inline_mitigations_already_exist")]
+    InlineMitigationsAlreadyExist,
+    /// Some other reason (use notes to explain).
+    #[serde(rename = "other")]
+    Other,
+}
+
+/// The status-changing action sent in the body of `PUT /v2/issues/`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum IssueAction {
+    /// Ignore the issue, optionally with a comment and a reason.
+    Ignore {
+        /// Free-text comment shown alongside the ignore in the FOSSA UI.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        notes: Option<String>,
+        /// Structured reason for the ignore.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<IssueIgnoreReason>,
+    },
+    /// Revert a previous ignore, returning the issue to active.
+    Unignore,
+}
+
+/// Parameters for [`Issue::update`].
+#[derive(Debug, Clone)]
+pub struct IssueUpdateParams {
+    /// The issue's category. The API requires it on every issue write.
+    pub category: IssueCategory,
+    /// The action to perform.
+    pub action: IssueAction,
+}
+
+/// Response body of `PUT /v2/issues/`.
+///
+/// `count` is the number of issue-project rows changed; `issue_id` is only
+/// present when exactly one row changed.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueActionResponse {
+    /// Number of issue-project rows the action changed.
+    pub count: u64,
+    /// The affected issue ID, present only when `count == 1`.
+    #[serde(default)]
+    pub issue_id: Option<u64>,
+}
+
+#[async_trait]
+impl Update for Issue {
+    type Id = u64;
+    type Params = IssueUpdateParams;
+
+    /// Ignore or un-ignore an issue, then return its refreshed state.
+    ///
+    /// The server's `PUT /v2/issues/` is an unguarded upsert when targeting by
+    /// ID: re-ignoring an already-ignored issue silently overwrites its notes
+    /// and reason and resets its ignored-at timestamp. To keep that
+    /// intentional, this first fetches the issue and refuses actions whose
+    /// target state already holds everywhere — mirroring the web UI, which
+    /// only offers Ignore on active issues and Unignore on ignored ones. To
+    /// change an existing ignore's notes or reason, unignore first, then
+    /// re-ignore.
+    ///
+    /// Statuses are an org-wide rollup, so a partially ignored issue (ignored
+    /// in one project, active in another) accepts both actions, like the UI's
+    /// global issue view; the server applies the action to every project.
+    ///
+    /// A `count` of 0 from the server means the issue wasn't visible to the
+    /// token (the pre-flight fetch already rules out a wrong ID or category).
+    ///
+    /// Requires a full API token: push-only tokens cannot write issues.
+    #[tracing::instrument(skip(client))]
+    async fn update(client: &FossaClient, id: u64, params: IssueUpdateParams) -> Result<Self> {
+        // The server stores a reason for any category, but only vulnerability
+        // ignores ever surface it (UI, SBOM/VEX); elsewhere it is write-only
+        // noise, so mirror the UI and refuse it.
+        if let IssueAction::Ignore {
+            reason: Some(_), ..
+        } = &params.action
+        {
+            if params.category != IssueCategory::Vulnerability {
+                return Err(FossaError::InvalidParams(
+                    "reasons only apply to vulnerability ignores; use notes for \
+                     licensing and quality issues"
+                        .to_string(),
+                ));
+            }
+        }
+
+        let current = Issue::get_with_category(client, id, params.category).await?;
+        match params.action {
+            IssueAction::Ignore { .. } if current.statuses.active == 0 => {
+                return Err(FossaError::InvalidParams(format!(
+                    "issue {id} is already ignored; unignore it first to change \
+                     its notes or reason"
+                )));
+            }
+            IssueAction::Unignore if current.statuses.ignored == 0 => {
+                return Err(FossaError::InvalidParams(format!(
+                    "issue {id} is not ignored; there is nothing to unignore"
+                )));
+            }
+            _ => {}
+        }
+
+        let path = format!(
+            "v2/issues/?category={}&ids[]={id}",
+            params.category.as_str()
+        );
+
+        let response = client.put(&path, &params.action).await?;
+        let result: IssueActionResponse = response.json().await.map_err(FossaError::HttpError)?;
+
+        if result.count == 0 {
+            return Err(FossaError::ApiError {
+                message: format!(
+                    "issue {id} was not modified; it may not be visible to this token"
+                ),
+                status_code: None,
+            });
+        }
+
+        // The write has already applied; a refresh failure here must not read
+        // as a failed write, or callers will retry an action that succeeded.
+        let verb = match params.action {
+            IssueAction::Ignore { .. } => "ignore",
+            IssueAction::Unignore => "unignore",
+        };
+        Issue::get_with_category(client, id, params.category)
+            .await
+            .map_err(|e| FossaError::ApiError {
+                message: format!(
+                    "the {verb} of issue {id} succeeded, but re-fetching the \
+                     issue failed: {e}"
+                ),
+                status_code: None,
+            })
+    }
 }

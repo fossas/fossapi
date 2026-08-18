@@ -139,6 +139,8 @@ impl MockServer {
             // Issue routes
             .route("/v2/issues/:id", get(handlers::get_issue))
             .route("/v2/issues", get(handlers::list_issues))
+            // The real endpoint's path has a trailing slash: PUT /api/v2/issues/
+            .route("/v2/issues/", put(handlers::update_issues))
             // Health check
             .route("/health", get(health_check))
             .with_state(state)

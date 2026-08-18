@@ -7,7 +7,7 @@
 
 use clap::{Parser, Subcommand};
 
-pub use crate::ops::{GetCommand, ListCommand, UpdateCommand};
+pub use crate::ops::{GetCommand, IgnoreCommand, ListCommand, UnignoreCommand, UpdateCommand};
 
 /// FOSSA API command-line interface.
 #[derive(Parser, Debug)]
@@ -40,6 +40,18 @@ pub enum Command {
     Update {
         #[command(subcommand)]
         command: UpdateCommand,
+    },
+
+    /// Ignore an issue (with an optional comment and reason).
+    Ignore {
+        #[command(subcommand)]
+        command: IgnoreCommand,
+    },
+
+    /// Revert a previous ignore, returning the issue to active.
+    Unignore {
+        #[command(subcommand)]
+        command: UnignoreCommand,
     },
 
     /// Run the MCP server on stdio.

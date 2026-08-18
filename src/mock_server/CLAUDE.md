@@ -19,7 +19,7 @@ mock_server/
     ├── projects.rs  # GET/PUT /projects/:locator, GET /v2/projects
     ├── revisions.rs # GET /revisions/:locator, GET /projects/:locator/revisions
     ├── dependencies.rs # GET /v2/revisions/:locator/dependencies
-    └── issues.rs    # GET /v2/issues/:id, GET /v2/issues
+    └── issues.rs    # GET /v2/issues/:id, GET /v2/issues, PUT /v2/issues/
 ```
 
 ## Usage
@@ -57,6 +57,7 @@ async fn test_workflow() {
 | `/v2/revisions/:locator/dependencies` | GET | list_dependencies |
 | `/v2/issues/:id` | GET | get_issue |
 | `/v2/issues` | GET | list_issues |
+| `/v2/issues/` | PUT | update_issues (ignore/unignore; trailing slash matches the real API) |
 | `/health` | GET | health_check |
 
 ## Running Tests

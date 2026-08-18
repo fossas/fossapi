@@ -7,7 +7,7 @@
 
 use clap::Parser;
 use fossapi::cli::{Cli, Command};
-use fossapi::ops::{run_get, run_list, run_update, ListOutput};
+use fossapi::ops::{run_get, run_ignore, run_list, run_unignore, run_update, ListOutput};
 use fossapi::{FossaClient, Page, PrettyPrint, Project, Snippet, SnippetLocation, SnippetPath};
 use serde::Serialize;
 use std::process::ExitCode;
@@ -47,6 +47,14 @@ async fn run(client: &FossaClient, cli: Cli) -> fossapi::Result<()> {
         }
         Command::Update { command } => {
             let output = run_update(client, command).await?;
+            output_single(&output, cli.json)
+        }
+        Command::Ignore { command } => {
+            let output = run_ignore(client, command).await?;
+            output_single(&output, cli.json)
+        }
+        Command::Unignore { command } => {
+            let output = run_unignore(client, command).await?;
             output_single(&output, cli.json)
         }
         Command::Mcp { verbose } => handle_mcp(client, verbose).await,

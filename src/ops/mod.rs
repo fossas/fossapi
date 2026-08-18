@@ -1,8 +1,8 @@
 //! Shared operation definitions consumed by both the CLI and the MCP server.
 //!
-//! Each verb (`get`, `list`, `update`) is declared once as an enum whose
-//! variants wrap per-entity parameter structs. The same declaration drives
-//! both frontends:
+//! Each verb (`get`, `list`, `update`, `ignore`, `unignore`) is declared once
+//! as an enum whose variants wrap per-entity parameter structs. The same
+//! declaration drives both frontends:
 //!
 //! - **CLI**: the enums derive [`clap::Subcommand`] and the param structs
 //!   derive [`clap::Args`], so `fossapi get issue 123 --category licensing`
@@ -18,12 +18,17 @@
 //! between the surfaces is checked by `tests/parity.rs`.
 
 mod get;
+mod ignore;
 mod list;
 mod update;
 
 pub use get::{
     run_get, GetCommand, GetIssueParams, GetOutput, GetProjectParams, GetRevisionParams,
     GetSnippetMatchParams, GetSnippetParams,
+};
+pub use ignore::{
+    run_ignore, run_unignore, IgnoreCommand, IgnoreIssueParams, IgnoreOutput, UnignoreCommand,
+    UnignoreIssueParams, UnignoreOutput,
 };
 pub use list::{
     run_list, ListCommand, ListDependenciesParams, ListIssuesParams, ListOutput,

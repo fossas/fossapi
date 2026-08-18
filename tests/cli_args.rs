@@ -5,12 +5,15 @@
 //! consumes.
 
 use clap::Parser;
-use fossapi::cli::{Cli, Command, GetCommand, ListCommand, UpdateCommand};
-use fossapi::ops::{
-    GetIssueParams, GetProjectParams, GetRevisionParams, ListDependenciesParams, ListIssuesParams,
-    ListProjectsParams, ListRevisionsParams, PageArgs, UpdateProjectParams,
+use fossapi::cli::{
+    Cli, Command, GetCommand, IgnoreCommand, ListCommand, UnignoreCommand, UpdateCommand,
 };
-use fossapi::IssueCategory;
+use fossapi::ops::{
+    GetIssueParams, GetProjectParams, GetRevisionParams, IgnoreIssueParams, ListDependenciesParams,
+    ListIssuesParams, ListProjectsParams, ListRevisionsParams, PageArgs, UnignoreIssueParams,
+    UpdateProjectParams,
+};
+use fossapi::{IssueCategory, IssueIgnoreReason};
 
 #[test]
 fn test_cli_parses_get_subcommand() {
@@ -481,4 +484,118 @@ fn test_cli_parses_mcp_with_verbose_flag() {
         }
         _ => panic!("Expected Mcp command"),
     }
+}
+
+// =============================================================================
+// ignore / unignore verbs
+// =============================================================================
+
+#[test]
+fn test_ignore_issue_with_notes_and_reason() {
+    let cli = Cli::parse_from([
+        "fossapi",
+        "ignore",
+        "issue",
+        "987654",
+        "--category",
+        "vulnerability",
+        "--notes",
+        "false positive patch",
+        "--reason",
+        "other",
+    ]);
+    match cli.command {
+        Command::Ignore {
+            command:
+                IgnoreCommand::Issue(IgnoreIssueParams {
+                    id,
+                    category,
+                    notes,
+                    reason,
+                }),
+        } => {
+            assert_eq!(id, 987654);
+            assert_eq!(category, IssueCategory::Vulnerability);
+            assert_eq!(notes, Some("false positive patch".to_string()));
+            assert_eq!(reason, Some(IssueIgnoreReason::Other));
+        }
+        _ => panic!("Expected Ignore command"),
+    }
+}
+
+// Multi-word reasons are where the CLI and API surfaces diverge: clap derives
+// kebab-case value names, while the API stores `Vulnerable_code_not_in_execute_path`.
+#[test]
+fn test_ignore_issue_reason_uses_kebab_case_value_names() {
+    let cli = Cli::parse_from([
+        "fossapi",
+        "ignore",
+        "issue",
+        "987654",
+        "--category",
+        "vulnerability",
+        "--reason",
+        "vulnerable-code-not-in-execute-path",
+    ]);
+    match cli.command {
+        Command::Ignore {
+            command: IgnoreCommand::Issue(IgnoreIssueParams { reason, .. }),
+        } => {
+            assert_eq!(
+                reason,
+                Some(IssueIgnoreReason::VulnerableCodeNotInExecutePath)
+            );
+        }
+        _ => panic!("Expected Ignore command"),
+    }
+}
+
+#[test]
+fn test_unignore_issue() {
+    let cli = Cli::parse_from([
+        "fossapi",
+        "unignore",
+        "issue",
+        "987654",
+        "--category",
+        "licensing",
+    ]);
+    match cli.command {
+        Command::Unignore {
+            command: UnignoreCommand::Issue(UnignoreIssueParams { id, category }),
+        } => {
+            assert_eq!(id, 987654);
+            assert_eq!(category, IssueCategory::Licensing);
+        }
+        _ => panic!("Expected Unignore command"),
+    }
+}
+
+#[test]
+fn test_ignore_issue_requires_category() {
+    let result = Cli::try_parse_from(["fossapi", "ignore", "issue", "987654"]);
+    assert!(result.is_err(), "--category must be required");
+}
+
+#[test]
+fn test_unignore_issue_requires_category() {
+    let result = Cli::try_parse_from(["fossapi", "unignore", "issue", "987654"]);
+    assert!(result.is_err(), "--category must be required");
+}
+
+#[test]
+fn test_unignore_issue_has_no_notes_flag() {
+    // notes belong to ignore only; the unignore declaration has no such
+    // field, so clap rejects the flag outright.
+    let result = Cli::try_parse_from([
+        "fossapi",
+        "unignore",
+        "issue",
+        "987654",
+        "--category",
+        "licensing",
+        "--notes",
+        "orphan comment",
+    ]);
+    assert!(result.is_err(), "--notes is not a flag of unignore");
 }

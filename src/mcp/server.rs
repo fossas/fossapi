@@ -15,7 +15,10 @@ use serde::Serialize;
 use std::sync::Arc;
 
 use crate::{
-    ops::{run_get, run_list, run_update, GetCommand, ListCommand, UpdateCommand},
+    ops::{
+        run_get, run_ignore, run_list, run_unignore, run_update, GetCommand, IgnoreCommand,
+        ListCommand, UnignoreCommand, UpdateCommand,
+    },
     FossaClient, FossaError,
 };
 
@@ -26,8 +29,8 @@ use crate::{
 ///
 /// # Tools
 ///
-/// The server exposes one tool per CLI verb — `get`, `list`, and `update` —
-/// and each tool's input schema is generated from the same
+/// The server exposes one tool per CLI verb — `get`, `list`, `update`,
+/// `ignore`, and `unignore` — and each tool's input schema is generated from the same
 /// [`crate::ops`] enum that the CLI parses into, so the two surfaces
 /// always expose the same operations with the same parameters.
 ///
@@ -99,6 +102,23 @@ impl FossaServer {
                 "Update a FOSSA entity. entity values: project (title, description, \
                  url, public, policy_id, default_branch).",
                 Self::schema::<UpdateCommand>(),
+            ),
+            Tool::new(
+                "ignore",
+                "Ignore a FOSSA issue, optionally recording notes (a free-text \
+                 comment) and, for vulnerability issues only, a structured reason. \
+                 entity values: issue (numeric id; category required). Refused if \
+                 the issue is already fully ignored — unignore it first to change \
+                 its notes or reason. Requires a full API token (push-only tokens \
+                 cannot write issues).",
+                Self::schema::<IgnoreCommand>(),
+            ),
+            Tool::new(
+                "unignore",
+                "Revert a previous ignore, returning a FOSSA issue to active. \
+                 entity values: issue (numeric id; category required). Refused if \
+                 nothing on the issue is ignored. Requires a full API token.",
+                Self::schema::<UnignoreCommand>(),
             ),
         ]
     }
@@ -175,6 +195,25 @@ impl FossaServer {
             .map_err(Self::to_mcp_error)?;
         Self::to_result(&output)
     }
+
+    /// Handle the `ignore` tool.
+    pub async fn handle_ignore(&self, command: IgnoreCommand) -> Result<CallToolResult, McpError> {
+        let output = run_ignore(&self.client, command)
+            .await
+            .map_err(Self::to_mcp_error)?;
+        Self::to_result(&output)
+    }
+
+    /// Handle the `unignore` tool.
+    pub async fn handle_unignore(
+        &self,
+        command: UnignoreCommand,
+    ) -> Result<CallToolResult, McpError> {
+        let output = run_unignore(&self.client, command)
+            .await
+            .map_err(Self::to_mcp_error)?;
+        Self::to_result(&output)
+    }
 }
 
 impl ServerHandler for FossaServer {
@@ -241,6 +280,16 @@ impl ServerHandler for FossaServer {
                     .map_err(|e| Self::describe_args_error(e, &args))?;
                 self.handle_update(command).await
             }
+            "ignore" => {
+                let command: IgnoreCommand = serde_json::from_value(args.clone())
+                    .map_err(|e| Self::describe_args_error(e, &args))?;
+                self.handle_ignore(command).await
+            }
+            "unignore" => {
+                let command: UnignoreCommand = serde_json::from_value(args.clone())
+                    .map_err(|e| Self::describe_args_error(e, &args))?;
+                self.handle_unignore(command).await
+            }
             other => Err(McpError::invalid_params(
                 format!("Unknown tool: {other}"),
                 None,
@@ -254,8 +303,9 @@ mod tests {
     use super::*;
     use crate::ops::{
         GetIssueParams, GetProjectParams, GetRevisionParams, GetSnippetMatchParams,
-        GetSnippetParams, ListDependenciesParams, ListProjectsParams, ListRevisionsParams,
-        ListSnippetLocationsParams, ListSnippetsParams, PageArgs, UpdateProjectParams,
+        GetSnippetParams, IgnoreIssueParams, ListDependenciesParams, ListProjectsParams,
+        ListRevisionsParams, ListSnippetLocationsParams, ListSnippetsParams, PageArgs,
+        UnignoreIssueParams, UpdateProjectParams,
     };
     use crate::IssueCategory;
     use wiremock::matchers::{method, path, path_regex, query_param};
@@ -269,12 +319,12 @@ mod tests {
     }
 
     #[test]
-    fn tools_are_get_list_update() {
+    fn tools_are_the_cli_verbs() {
         let names: Vec<_> = FossaServer::tools()
             .iter()
             .map(|t| t.name.to_string())
             .collect();
-        assert_eq!(names, ["get", "list", "update"]);
+        assert_eq!(names, ["get", "list", "update", "ignore", "unignore"]);
     }
 
     #[test]
@@ -282,6 +332,8 @@ mod tests {
         assert!(!FossaServer::schema::<GetCommand>().is_empty());
         assert!(!FossaServer::schema::<ListCommand>().is_empty());
         assert!(!FossaServer::schema::<UpdateCommand>().is_empty());
+        assert!(!FossaServer::schema::<IgnoreCommand>().is_empty());
+        assert!(!FossaServer::schema::<UnignoreCommand>().is_empty());
     }
 
     #[test]
@@ -926,5 +978,213 @@ mod tests {
         let text = response_text(&result);
         assert!(text.contains("detectedCode") || text.contains("detected_code"));
         assert!(text.contains("42"));
+    }
+
+    // =========================================================================
+    // ignore / unignore handler tests
+    // =========================================================================
+
+    fn issue_body(id: u64, active: u32, ignored: u32) -> serde_json::Value {
+        serde_json::json!({
+            "id": id,
+            "type": "licensing",
+            "source": {"id": "npm+leftpad$1.0.0"},
+            "statuses": {"active": active, "ignored": ignored},
+            "license": "GPL-3.0"
+        })
+    }
+
+    fn ignore_licensing_issue() -> IgnoreCommand {
+        IgnoreCommand::Issue(IgnoreIssueParams {
+            id: 987654,
+            category: IssueCategory::Licensing,
+            notes: Some("false positive patch".to_string()),
+            reason: None,
+        })
+    }
+
+    /// Test: ignore fetches the issue, sends the action, and returns the
+    /// refreshed issue.
+    #[tokio::test]
+    async fn handle_ignore_issue_succeeds() {
+        use wiremock::matchers::body_json;
+
+        let mock_server = MockServer::start().await;
+
+        // Pre-flight guard fetch (active) and post-write refresh (ignored).
+        Mock::given(method("GET"))
+            .and(path("/v2/issues/987654"))
+            .and(query_param("category", "licensing"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(issue_body(987654, 1, 0)))
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("PUT"))
+            .and(path("/v2/issues/"))
+            .and(query_param("category", "licensing"))
+            .and(query_param("ids[]", "987654"))
+            .and(body_json(serde_json::json!({
+                "type": "ignore",
+                "notes": "false positive patch"
+            })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"count": 1, "issueId": 987654})),
+            )
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/v2/issues/987654"))
+            .and(query_param("category", "licensing"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(issue_body(987654, 0, 1)))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let result = server
+            .handle_ignore(ignore_licensing_issue())
+            .await
+            .unwrap();
+        assert!(!result.is_error.unwrap_or(false));
+        let text = response_text(&result);
+        assert!(text.contains("987654"));
+        assert!(text.contains("\"ignored\": 1"));
+    }
+
+    /// Test: ignoring an already-ignored issue is refused before any PUT.
+    #[tokio::test]
+    async fn handle_ignore_already_ignored_is_rejected_without_put() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/v2/issues/987654"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(issue_body(987654, 0, 1)))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("PUT"))
+            .and(path("/v2/issues/"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let err = server
+            .handle_ignore(ignore_licensing_issue())
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("unignore it first"), "{err:?}");
+    }
+
+    /// Test: unignoring an issue with nothing ignored is refused before any PUT.
+    #[tokio::test]
+    async fn handle_unignore_active_is_rejected_without_put() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/v2/issues/987654"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(issue_body(987654, 1, 0)))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("PUT"))
+            .and(path("/v2/issues/"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let err = server
+            .handle_unignore(UnignoreCommand::Issue(UnignoreIssueParams {
+                id: 987654,
+                category: IssueCategory::Licensing,
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("nothing to unignore"), "{err:?}");
+    }
+
+    /// Test: a partially ignored issue (org-wide rollup) accepts both actions,
+    /// like the UI's global issue view.
+    #[tokio::test]
+    async fn handle_ignore_partial_state_is_allowed() {
+        use wiremock::matchers::body_json;
+
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/v2/issues/987654"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(issue_body(987654, 2, 1)))
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("PUT"))
+            .and(path("/v2/issues/"))
+            .and(body_json(serde_json::json!({
+                "type": "ignore",
+                "notes": "false positive patch"
+            })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"count": 2, "issueId": null})),
+            )
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/v2/issues/987654"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(issue_body(987654, 0, 3)))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let result = server
+            .handle_ignore(ignore_licensing_issue())
+            .await
+            .unwrap();
+        assert!(!result.is_error.unwrap_or(false));
+    }
+
+    /// Test: a reason on a non-vulnerability ignore is refused before any
+    /// HTTP call — the server would store it, but nothing ever displays it.
+    #[tokio::test]
+    async fn handle_ignore_reason_on_licensing_is_rejected() {
+        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
+        let server = FossaServer::new(client);
+
+        let err = server
+            .handle_ignore(IgnoreCommand::Issue(IgnoreIssueParams {
+                id: 987654,
+                category: IssueCategory::Licensing,
+                notes: None,
+                reason: Some(crate::IssueIgnoreReason::Other),
+            }))
+            .await
+            .unwrap_err();
+        assert!(
+            err.message.contains("only apply to vulnerability ignores"),
+            "{err:?}"
+        );
     }
 }

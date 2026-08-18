@@ -123,6 +123,7 @@ Project (top-level container)
 | Dependencies | `GET /v2/revisions/{locator}/dependencies` | For a revision |
 | Issues | `GET /v2/issues` | `category` **required**; `count` clamps to a minimum of 5 |
 | Issue | `GET /v2/issues/{id}` | Single issue with full details |
+| Issue actions | `PUT /v2/issues/` | Ignore/unignore. Targets in the query (`category` required, `ids[]`), action in the body (`{type, notes?, reason?}`). By ID the server is an **unguarded upsert**: the `status` query param is silently ignored, and re-ignoring overwrites notes/reason and resets the ignored-at timestamp — which is why we guard client-side (see ADR 0002). Responds `{count, issueId?}` (`issueId` only when count==1); `count: 0` = target not visible to the token. Full token only — push-only tokens can't write issues; missing resolve permission is a **400**, not 403 |
 | Snippets | `GET /revisions/{locator}/snippets` | Paginated; `pageSize` capped at 50 (`list_all` overrides) |
 | Snippet paths | `GET /revisions/{locator}/snippets/paths` | File/dir tree, drill in via `path` |
 | Snippet details | `GET /revisions/{locator}/snippets/{id}` | Single snippet + its per-file matches |
@@ -161,7 +162,7 @@ advertise them is issue #41.
 - **Project** - Top-level container, implements Get/List/Update
 - **Revision** - Snapshot at point in time, implements Get/List
 - **Dependency** - Package dependency, implements List only (via revision)
-- **Issue** - Vulnerability/licensing/quality issue, implements Get/List. `Issue` has no `deny_unknown_fields`, so any API key not declared on the struct is silently dropped — when the API grows a field, add it here or callers never see it. `cpes` is deliberately unmodeled (empty on all 80 sampled issues); `patchedVersionRanges` is modeled but rarely populated (1/80) — prefer `remediation` for upgrade targets. `IssueProject` entries carry the revision the issue was found in (`revision_id`, `latest`, `first_found_at`), not just the project.
+- **Issue** - Vulnerability/licensing/quality issue, implements Get/List/Update. Update = ignore/unignore via `IssueUpdateParams` (`IssueAction::Ignore { notes, reason }` / `Unignore`), surfaced as the top-level `ignore`/`unignore` verbs on both surfaces; it pre-fetches the issue and refuses actions whose target state already fully holds ("unignore it first" — see ADR 0002; partial org-wide states accept both actions, like the UI's global view), then re-fetches and returns the refreshed issue. `reason` is refused outside the vulnerability category (the server stores it for any category, but nothing ever displays it for licensing/quality — write-only noise). `IssueIgnoreReason` is an enum because the API resolves the reason string against its `ResolutionReasons` table and silently stores NULL on a mismatch. `Issue` has no `deny_unknown_fields`, so any API key not declared on the struct is silently dropped — when the API grows a field, add it here or callers never see it. `cpes` is deliberately unmodeled (empty on all 80 sampled issues); `patchedVersionRanges` is modeled but rarely populated (1/80) — prefer `remediation` for upgrade targets. `IssueProject` entries carry the revision the issue was found in (`revision_id`, `latest`, `first_found_at`), not just the project.
 - **Snippet** - Third-party (OSS) code matched into first-party files, implements List only (via revision). Read-only; reached through the `get_snippet_*` convenience functions. Quirks: `id` is a string, `matchDetails.matchPercentage` is 0-100 (other percentages are 0-1), and whole-file matches highlight a trailing blank EOF line that is excluded from the reported range.
 - **LicenseInfo** - Can be simple string ("MIT") or full object
 
@@ -182,6 +183,9 @@ All three categories also carry `url` (deep link into the FOSSA UI).
 - **IssueScan** - Issue scans tied to revisions (not yet implemented)
 - **Snippet reject/unreject** - Mutating a snippet's rejection status (out of scope for v1)
 - **Cross-revision snippet compare** - Diffing snippet matches across revisions (out of scope for v1)
+- **Issue exceptions** - `PUT /v2/issues/` also accepts `type: issueException` (org/policy-wide ignores, expirations, package labels; premium-gated) and there are `PUT`/`DELETE /v2/issues/exceptions` endpoints — the single-issue ignore/unignore we model is the common case; exceptions are unmodeled
+- **Bulk issue actions** - the API natively batches (`ids[]` array, or filter-wide when `ids` is omitted — the filter-wide form mass-ignores everything matching, so exposing it needs care); we deliberately send one ID per call and guard each with a pre-flight fetch
+- **Editing an ignore's notes** - deliberately requires unignore-then-re-ignore (matching the UI); the server's raw re-ignore overwrite is reachable only by hand-rolled API calls
 
 ## Nudge
 
