@@ -3,10 +3,11 @@
 //! A command-line interface for interacting with the FOSSA API.
 
 use clap::Parser;
-use fossapi::cli::{Cli, Command, Entity, GetCommand, ListCommand};
+use fossapi::cli::{Cli, Command, Entity, GetCommand, ListCommand, UpdateArgs};
 use fossapi::{
-    get_dependencies, FossaClient, Get, Issue, IssueListQuery, List, Page, PrettyPrint, Project,
-    ProjectUpdateParams, Revision, Snippet, SnippetListQuery, SnippetLocation, SnippetPath, Update,
+    get_dependencies, FossaClient, Get, Issue, IssueAction, IssueListQuery, IssueUpdateParams,
+    List, Page, PrettyPrint, Project, ProjectUpdateParams, Revision, Snippet, SnippetListQuery,
+    SnippetLocation, SnippetPath, Update,
 };
 use serde::Serialize;
 use std::process::ExitCode;
@@ -41,10 +42,8 @@ async fn run(client: &FossaClient, cli: Cli) -> fossapi::Result<()> {
         Command::Update {
             entity,
             locator,
-            title,
-            description,
-            public,
-        } => handle_update(client, entity, &locator, title, description, public, cli.json).await,
+            args,
+        } => handle_update(client, entity, &locator, args, cli.json).await,
         Command::Mcp { verbose } => handle_mcp(client, verbose).await,
     }
 }
@@ -196,26 +195,53 @@ async fn handle_update(
     client: &FossaClient,
     entity: Entity,
     locator: &str,
-    title: Option<String>,
-    description: Option<String>,
-    public: Option<bool>,
+    args: UpdateArgs,
     json: bool,
 ) -> fossapi::Result<()> {
     match entity {
         Entity::Project => {
             let params = ProjectUpdateParams {
-                title,
-                description,
-                public,
+                title: args.title,
+                description: args.description,
+                public: args.public,
                 ..Default::default()
             };
             let project = Project::update(client, locator.to_string(), params).await?;
             output_single(&project, json)?;
         }
+        Entity::Issue => {
+            let id: u64 = locator.parse().map_err(|_| {
+                fossapi::FossaError::InvalidLocator(format!(
+                    "issue updates take the numeric issue ID, got: {locator}"
+                ))
+            })?;
+            let Some(category) = args.category else {
+                eprintln!("Error: --category is required when updating an issue");
+                return Err(fossapi::FossaError::InvalidLocator(
+                    "--category is required for issue updates".to_string(),
+                ));
+            };
+            let action = if args.ignore {
+                IssueAction::Ignore {
+                    notes: args.notes,
+                    reason: args.reason,
+                }
+            } else if args.unignore {
+                IssueAction::Unignore
+            } else {
+                eprintln!("Error: pass --ignore or --unignore to update an issue");
+                return Err(fossapi::FossaError::InvalidLocator(
+                    "issue updates require --ignore or --unignore".to_string(),
+                ));
+            };
+            let issue =
+                Issue::update(client, id, IssueUpdateParams { category, action }).await?;
+            output_single(&issue, json)?;
+        }
         _ => {
-            eprintln!("Error: Only projects can be updated via CLI");
+            eprintln!("Error: Only projects and issues can be updated via CLI");
             return Err(fossapi::FossaError::InvalidLocator(
-                "only projects support update".to_string(),
+                "only projects and issues support update".to_string(),
             ));
         }
     }

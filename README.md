@@ -80,7 +80,22 @@ fossapi get issue 12345
 
 # Skip the search when you know the category
 fossapi get issue 12345 --category licensing
+
+# Ignore an issue with a comment
+fossapi update issue 12345 --category licensing --ignore \
+  --notes "false positive patch" --reason other
+
+# Revert the ignore
+fossapi update issue 12345 --category licensing --unignore
 ```
+
+Ignoring supports an optional `--notes` free-text comment and a `--reason`
+(one of `fixed`, `under-investigation`, `incorrect-data-found`,
+`component-not-present`, `vulnerable-code-not-present`,
+`vulnerable-code-not-in-execute-path`,
+`vulnerable-code-cannot-be-controlled-by-adversary`,
+`inline-mitigations-already-exist`, `other`). Issue writes require a full API
+token; push-only tokens can only read.
 
 ### Snippets
 
@@ -157,7 +172,7 @@ Add to your MCP config:
 |------|-------------|
 | `get` | Fetch a single project, revision, or issue by ID |
 | `list` | List projects, revisions, dependencies, issues, or snippet match locations |
-| `update` | Update project metadata (title, description, url, public) |
+| `update` | Update project metadata (title, description, url, public), or ignore/unignore an issue (with optional notes and reason) |
 | `snippet_match` | Drill into one snippet match: the matched first-party and reference code |
 
 > **Snippets over MCP:** use `list` with `entity: snippet` and `parent: <revision

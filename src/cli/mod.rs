@@ -2,9 +2,9 @@
 //!
 //! This module provides the command-line interface structure for the fossapi binary.
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
-use crate::IssueCategory;
+use crate::{IssueCategory, IssueIgnoreReason};
 
 /// FOSSA API command-line interface.
 #[derive(Parser, Debug)]
@@ -38,20 +38,11 @@ pub enum Command {
         /// The type of entity to update.
         entity: Entity,
 
-        /// The locator of the entity to update.
+        /// The locator of the entity to update (numeric issue ID for issues).
         locator: String,
 
-        /// New title for the entity.
-        #[arg(long)]
-        title: Option<String>,
-
-        /// New description for the entity.
-        #[arg(long)]
-        description: Option<String>,
-
-        /// Set project visibility (true = public, false = private).
-        #[arg(long)]
-        public: Option<bool>,
+        #[command(flatten)]
+        args: UpdateArgs,
     },
 
     /// Run the MCP server on stdio.
@@ -60,6 +51,45 @@ pub enum Command {
         #[arg(long)]
         verbose: bool,
     },
+}
+
+/// Flags for the `update` command.
+///
+/// Projects and issues take disjoint flag sets; the handler rejects
+/// mismatched combinations.
+#[derive(Args, Debug, Clone, PartialEq)]
+pub struct UpdateArgs {
+    /// New title (project only).
+    #[arg(long)]
+    pub title: Option<String>,
+
+    /// New description (project only).
+    #[arg(long)]
+    pub description: Option<String>,
+
+    /// Set project visibility (true = public, false = private; project only).
+    #[arg(long)]
+    pub public: Option<bool>,
+
+    /// Issue category (issue only; required for issue updates).
+    #[arg(long, value_enum)]
+    pub category: Option<IssueCategory>,
+
+    /// Ignore the issue (issue only).
+    #[arg(long, conflicts_with = "unignore")]
+    pub ignore: bool,
+
+    /// Revert a previous ignore, returning the issue to active (issue only).
+    #[arg(long)]
+    pub unignore: bool,
+
+    /// Free-text comment recorded with --ignore.
+    #[arg(long, requires = "ignore")]
+    pub notes: Option<String>,
+
+    /// Structured reason recorded with --ignore.
+    #[arg(long, value_enum, requires = "ignore")]
+    pub reason: Option<IssueIgnoreReason>,
 }
 
 /// Subcommands for the `get` command with type-safe ID parsing.

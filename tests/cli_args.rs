@@ -46,12 +46,11 @@ fn test_cli_parses_update_subcommand() {
         Command::Update {
             entity,
             locator,
-            title,
-            ..
+            args,
         } => {
             assert!(matches!(entity, Entity::Project));
             assert_eq!(locator, "custom+acme/myapp");
-            assert_eq!(title, Some("New Title".to_string()));
+            assert_eq!(args.title, Some("New Title".to_string()));
         }
         _ => panic!("Expected Update command"),
     }
@@ -297,8 +296,8 @@ fn test_update_project_title_flag() {
         "New Title",
     ]);
     match cli.command {
-        Command::Update { title, .. } => {
-            assert_eq!(title, Some("New Title".to_string()));
+        Command::Update { args, .. } => {
+            assert_eq!(args.title, Some("New Title".to_string()));
         }
         _ => panic!("Expected Update command"),
     }
@@ -315,8 +314,8 @@ fn test_update_project_public_flag() {
         "true",
     ]);
     match cli.command {
-        Command::Update { public, .. } => {
-            assert_eq!(public, Some(true));
+        Command::Update { args, .. } => {
+            assert_eq!(args.public, Some(true));
         }
         _ => panic!("Expected Update command"),
     }
@@ -338,14 +337,12 @@ fn test_update_project_multiple_flags() {
         Command::Update {
             entity,
             locator,
-            title,
-            public,
-            ..
+            args,
         } => {
             assert!(matches!(entity, Entity::Project));
             assert_eq!(locator, "custom+acme/myapp");
-            assert_eq!(title, Some("New Title".to_string()));
-            assert_eq!(public, Some(false));
+            assert_eq!(args.title, Some("New Title".to_string()));
+            assert_eq!(args.public, Some(false));
         }
         _ => panic!("Expected Update command"),
     }
@@ -375,4 +372,77 @@ fn test_cli_parses_mcp_with_verbose_flag() {
         }
         _ => panic!("Expected Mcp command"),
     }
+}
+
+// =============================================================================
+// Issue update flags (ignore / unignore with comment)
+// =============================================================================
+
+#[test]
+fn test_update_issue_ignore_with_notes_and_reason() {
+    let cli = Cli::parse_from([
+        "fossapi",
+        "update",
+        "issue",
+        "987654",
+        "--category",
+        "licensing",
+        "--ignore",
+        "--notes",
+        "false positive patch",
+        "--reason",
+        "other",
+    ]);
+    match cli.command {
+        Command::Update {
+            entity,
+            locator,
+            args,
+        } => {
+            assert!(matches!(entity, Entity::Issue));
+            assert_eq!(locator, "987654");
+            assert_eq!(args.category, Some(IssueCategory::Licensing));
+            assert!(args.ignore);
+            assert!(!args.unignore);
+            assert_eq!(args.notes, Some("false positive patch".to_string()));
+            assert_eq!(args.reason, Some(fossapi::IssueIgnoreReason::Other));
+        }
+        _ => panic!("Expected Update command"),
+    }
+}
+
+#[test]
+fn test_update_issue_unignore() {
+    let cli = Cli::parse_from([
+        "fossapi",
+        "update",
+        "issue",
+        "987654",
+        "--category",
+        "vulnerability",
+        "--unignore",
+    ]);
+    match cli.command {
+        Command::Update { args, .. } => {
+            assert!(args.unignore);
+            assert!(!args.ignore);
+        }
+        _ => panic!("Expected Update command"),
+    }
+}
+
+#[test]
+fn test_update_issue_ignore_conflicts_with_unignore() {
+    let result = Cli::try_parse_from([
+        "fossapi", "update", "issue", "987654", "--ignore", "--unignore",
+    ]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_update_issue_notes_requires_ignore() {
+    let result = Cli::try_parse_from([
+        "fossapi", "update", "issue", "987654", "--notes", "orphan comment",
+    ]);
+    assert!(result.is_err());
 }

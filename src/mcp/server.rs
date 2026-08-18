@@ -14,10 +14,10 @@ use schemars::JsonSchema;
 use std::sync::Arc;
 
 use crate::{
-    mcp::{EntityType, GetParams, ListParams, SnippetMatchParams, UpdateParams},
-    DependencyListQuery, FossaClient, FossaError, Get, Issue, IssueListQuery, List,
-    Project, ProjectListQuery, ProjectUpdateParams, Revision, RevisionListQuery, SnippetListQuery,
-    Update,
+    mcp::{EntityType, GetParams, ListParams, SnippetMatchParams, UpdateAction, UpdateParams},
+    DependencyListQuery, FossaClient, FossaError, Get, Issue, IssueAction, IssueListQuery,
+    IssueUpdateParams, List, Project, ProjectListQuery, ProjectUpdateParams, Revision,
+    RevisionListQuery, SnippetListQuery, Update,
 };
 
 /// FOSSA MCP Server.
@@ -284,10 +284,44 @@ impl FossaServer {
                 "Update not supported for Revision",
                 None,
             )),
-            EntityType::Issue => Err(McpError::invalid_params(
-                "Update not supported for Issue",
-                None,
-            )),
+            EntityType::Issue => {
+                let id: u64 = params.locator.parse().map_err(|_| {
+                    McpError::invalid_params(
+                        "Issue updates take the numeric issue ID as the locator",
+                        None,
+                    )
+                })?;
+                let category = params.category.ok_or_else(|| {
+                    McpError::invalid_params(
+                        "category is required when updating an issue \
+                         (vulnerability, licensing, quality)",
+                        None,
+                    )
+                })?;
+                let action = match params.action {
+                    Some(UpdateAction::Ignore) => IssueAction::Ignore {
+                        notes: params.notes,
+                        reason: params.reason,
+                    },
+                    Some(UpdateAction::Unignore) => IssueAction::Unignore,
+                    None => {
+                        return Err(McpError::invalid_params(
+                            "action is required when updating an issue (ignore, unignore)",
+                            None,
+                        ))
+                    }
+                };
+                let issue = Issue::update(
+                    &self.client,
+                    id,
+                    IssueUpdateParams { category, action },
+                )
+                .await
+                .map_err(Self::to_mcp_error)?;
+                let result = serde_json::to_string_pretty(&issue)
+                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                Ok(CallToolResult::success(vec![Content::text(result)]))
+            }
             EntityType::Dependency => Err(McpError::invalid_params(
                 "Update not supported for Dependency",
                 None,
@@ -350,8 +384,11 @@ impl ServerHandler for FossaServer {
             ),
             Tool::new(
                 "update",
-                "Update a FOSSA entity. Currently only Project is supported. \
-                 Can update: title, description, url, public.",
+                "Update a FOSSA entity. \
+                 Project: locator = project locator; can update title, description, url, public. \
+                 Issue: locator = numeric issue ID; category required; action = ignore or \
+                 unignore, with optional notes (free-text comment) and reason on ignore. \
+                 Requires a full API token (push-only tokens cannot write issues).",
                 Self::schema::<UpdateParams>(),
             ),
             Tool::new(
@@ -925,6 +962,10 @@ mod tests {
             description: None,
             url: None,
             public: None,
+            category: None,
+            action: None,
+            notes: None,
+            reason: None,
         };
 
         let result = server.handle_update(params).await;
@@ -935,24 +976,241 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handle_update_issue_returns_error() {
+    async fn handle_update_issue_without_category_returns_error() {
         let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
         let server = FossaServer::new(client);
 
         let params = UpdateParams {
             entity: EntityType::Issue,
             locator: "12345".to_string(),
-            title: Some("New Title".to_string()),
+            title: None,
             description: None,
             url: None,
             public: None,
+            category: None,
+            action: Some(crate::mcp::UpdateAction::Ignore),
+            notes: None,
+            reason: None,
         };
 
         let result = server.handle_update(params).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("not supported"));
+        assert!(err.message.contains("category is required"));
+    }
+
+    #[tokio::test]
+    async fn handle_update_issue_without_action_returns_error() {
+        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
+        let server = FossaServer::new(client);
+
+        let params = UpdateParams {
+            entity: EntityType::Issue,
+            locator: "12345".to_string(),
+            title: None,
+            description: None,
+            url: None,
+            public: None,
+            category: Some(crate::IssueCategory::Licensing),
+            action: None,
+            notes: None,
+            reason: None,
+        };
+
+        let result = server.handle_update(params).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("action is required"));
+    }
+
+    #[tokio::test]
+    async fn handle_update_issue_with_non_numeric_locator_returns_error() {
+        let client = FossaClient::new("test-token", "http://localhost:9999").unwrap();
+        let server = FossaServer::new(client);
+
+        let params = UpdateParams {
+            entity: EntityType::Issue,
+            locator: "custom+org/repo".to_string(),
+            title: None,
+            description: None,
+            url: None,
+            public: None,
+            category: Some(crate::IssueCategory::Licensing),
+            action: Some(crate::mcp::UpdateAction::Ignore),
+            notes: None,
+            reason: None,
+        };
+
+        let result = server.handle_update(params).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("numeric issue ID"));
+    }
+
+    #[tokio::test]
+    async fn handle_update_issue_ignore_sends_action_and_returns_refreshed_issue() {
+        use wiremock::matchers::{body_json, query_param};
+
+        let mock_server = MockServer::start().await;
+
+        let expected_body = serde_json::json!({
+            "type": "ignore",
+            "notes": "false positive patch",
+            "reason": "other"
+        });
+
+        // The write: PUT /v2/issues/ with the target in the query string.
+        Mock::given(method("PUT"))
+            .and(path("/v2/issues/"))
+            .and(query_param("category", "licensing"))
+            .and(query_param("status", "active"))
+            .and(query_param("ids[]", "987654"))
+            .and(body_json(&expected_body))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"count": 1, "issueId": 987654})),
+            )
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        // The refresh read that follows a successful write.
+        let refreshed = serde_json::json!({
+            "id": 987654,
+            "type": "licensing",
+            "source": {"id": "npm+leftpad$1.0.0"},
+            "statuses": {"active": 0, "ignored": 1},
+            "license": "GPL-3.0"
+        });
+        Mock::given(method("GET"))
+            .and(path("/v2/issues/987654"))
+            .and(query_param("category", "licensing"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&refreshed))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = UpdateParams {
+            entity: EntityType::Issue,
+            locator: "987654".to_string(),
+            title: None,
+            description: None,
+            url: None,
+            public: None,
+            category: Some(crate::IssueCategory::Licensing),
+            action: Some(crate::mcp::UpdateAction::Ignore),
+            notes: Some("false positive patch".to_string()),
+            reason: Some(crate::IssueIgnoreReason::Other),
+        };
+
+        let result = server.handle_update(params).await;
+
+        assert!(result.is_ok(), "expected success, got {result:?}");
+        let call_result = result.unwrap();
+        let content = &call_result.content[0];
+        if let rmcp::model::RawContent::Text(text) = &content.raw {
+            assert!(text.text.contains("987654"));
+            assert!(text.text.contains("\"ignored\": 1"));
+        } else {
+            panic!("Expected text content");
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_update_issue_unignore_targets_ignored_rows() {
+        use wiremock::matchers::{body_json, query_param};
+
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("PUT"))
+            .and(path("/v2/issues/"))
+            .and(query_param("category", "vulnerability"))
+            .and(query_param("status", "ignored"))
+            .and(query_param("ids[]", "555"))
+            .and(body_json(&serde_json::json!({"type": "unignore"})))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"count": 1, "issueId": 555})),
+            )
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let refreshed = serde_json::json!({
+            "id": 555,
+            "type": "vulnerability",
+            "source": {"id": "npm+lodash$4.17.20"},
+            "statuses": {"active": 1, "ignored": 0}
+        });
+        Mock::given(method("GET"))
+            .and(path("/v2/issues/555"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&refreshed))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = UpdateParams {
+            entity: EntityType::Issue,
+            locator: "555".to_string(),
+            title: None,
+            description: None,
+            url: None,
+            public: None,
+            category: Some(crate::IssueCategory::Vulnerability),
+            action: Some(crate::mcp::UpdateAction::Unignore),
+            notes: None,
+            reason: None,
+        };
+
+        let result = server.handle_update(params).await;
+        assert!(result.is_ok(), "expected success, got {result:?}");
+    }
+
+    #[tokio::test]
+    async fn handle_update_issue_count_zero_is_an_error() {
+        use wiremock::matchers::query_param;
+
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("PUT"))
+            .and(path("/v2/issues/"))
+            .and(query_param("ids[]", "987654"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"count": 0})),
+            )
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = FossaClient::new("test-token", &mock_server.uri()).unwrap();
+        let server = FossaServer::new(client);
+
+        let params = UpdateParams {
+            entity: EntityType::Issue,
+            locator: "987654".to_string(),
+            title: None,
+            description: None,
+            url: None,
+            public: None,
+            category: Some(crate::IssueCategory::Licensing),
+            action: Some(crate::mcp::UpdateAction::Ignore),
+            notes: None,
+            reason: None,
+        };
+
+        let result = server.handle_update(params).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("no active licensing issue matched"));
     }
 
     #[tokio::test]
@@ -967,6 +1225,10 @@ mod tests {
             description: None,
             url: None,
             public: None,
+            category: None,
+            action: None,
+            notes: None,
+            reason: None,
         };
 
         let result = server.handle_update(params).await;
@@ -1012,6 +1274,10 @@ mod tests {
             description: None,
             url: None,
             public: None,
+            category: None,
+            action: None,
+            notes: None,
+            reason: None,
         };
 
         let result = server.handle_update(params).await;
@@ -1066,6 +1332,10 @@ mod tests {
             description: Some("New project description".to_string()),
             url: None,
             public: None,
+            category: None,
+            action: None,
+            notes: None,
+            reason: None,
         };
 
         let result = server.handle_update(params).await;

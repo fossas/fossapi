@@ -118,3 +118,87 @@ pub async fn list_issues(
 
     (StatusCode::OK, Json(ListIssuesResponse { issues })).into_response()
 }
+
+/// PUT /v2/issues/
+///
+/// Mirrors the real API's shape: targets come from the query string
+/// (`category`, `status` filter, `ids[]`), the action from the JSON body
+/// (`{"type": "ignore", "notes": ..., "reason": ...}` or
+/// `{"type": "unignore"}`). Responds `{count, issueId?}`, where `issueId` is
+/// only present when exactly one issue changed and `count: 0` signals that
+/// nothing matched.
+pub async fn update_issues(
+    State(state): State<Arc<RwLock<MockState>>>,
+    Query(params): Query<Vec<(String, String)>>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let find = |key: &str| {
+        params
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+    };
+
+    let Some(category) = find("category") else {
+        return missing_category();
+    };
+    let status_filter = find("status").unwrap_or("active");
+    let ids: Vec<u64> = params
+        .iter()
+        .filter(|(k, _)| k == "ids[]" || k == "ids")
+        .filter_map(|(_, v)| v.parse().ok())
+        .collect();
+
+    let ignore = match body.get("type").and_then(|t| t.as_str()) {
+        Some("ignore") => true,
+        Some("unignore") => false,
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "Validation error",
+                    "message": "Invalid issue action"
+                })),
+            )
+                .into_response()
+        }
+    };
+
+    let mut state = state.write().await;
+
+    let mut count: u64 = 0;
+    let mut last_issue_id = None;
+    for id in ids {
+        let Some(issue) = state.issues.get_mut(&id) else {
+            continue;
+        };
+        if issue.issue_type != category {
+            continue;
+        }
+        let matches_filter = match status_filter {
+            "active" => issue.statuses.active > 0,
+            "ignored" => issue.statuses.ignored > 0,
+            _ => true,
+        };
+        if !matches_filter {
+            continue;
+        }
+        let total = issue.statuses.active + issue.statuses.ignored;
+        if ignore {
+            issue.statuses.active = 0;
+            issue.statuses.ignored = total;
+        } else {
+            issue.statuses.active = total;
+            issue.statuses.ignored = 0;
+        }
+        count += 1;
+        last_issue_id = Some(id);
+    }
+
+    let response = if count == 1 {
+        serde_json::json!({"count": 1, "issueId": last_issue_id})
+    } else {
+        serde_json::json!({"count": count})
+    };
+    (StatusCode::OK, Json(response)).into_response()
+}

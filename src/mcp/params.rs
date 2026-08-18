@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::IssueCategory;
+use crate::{IssueCategory, IssueIgnoreReason};
 
 /// Entity types supported by MCP tools.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -58,12 +58,22 @@ pub struct ListParams {
     pub with_lines: Option<bool>,
 }
 
+/// Status-changing actions for the `update` MCP tool on issues.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateAction {
+    /// Ignore the issue (optionally with notes and a reason).
+    Ignore,
+    /// Revert a previous ignore, returning the issue to active.
+    Unignore,
+}
+
 /// Parameters for the `update` MCP tool.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct UpdateParams {
     /// The type of entity to update.
     pub entity: EntityType,
-    /// The entity locator.
+    /// The entity locator (Project) or numeric issue ID (Issue).
     pub locator: String,
     /// New title (Project only).
     #[serde(default)]
@@ -77,6 +87,18 @@ pub struct UpdateParams {
     /// Whether the project is public (Project only).
     #[serde(default)]
     pub public: Option<bool>,
+    /// Issue category (required for Issue entity: vulnerability, licensing, quality).
+    #[serde(default)]
+    pub category: Option<IssueCategory>,
+    /// Action to perform (required for Issue entity: ignore, unignore).
+    #[serde(default)]
+    pub action: Option<UpdateAction>,
+    /// Free-text comment recorded with an ignore (Issue only).
+    #[serde(default)]
+    pub notes: Option<String>,
+    /// Structured reason recorded with an ignore (Issue only).
+    #[serde(default)]
+    pub reason: Option<IssueIgnoreReason>,
 }
 
 /// Parameters for the `snippet_match` MCP tool (the snippet drill-in).
@@ -211,6 +233,44 @@ mod tests {
         assert!(matches!(params.entity, EntityType::Snippet));
         assert_eq!(params.path.as_deref(), Some("/src"));
         assert_eq!(params.with_lines, Some(true));
+    }
+
+    #[test]
+    fn update_params_deserializes_issue_ignore() {
+        let json = r#"{
+            "entity": "issue",
+            "locator": "987654",
+            "category": "licensing",
+            "action": "ignore",
+            "notes": "false positive patch",
+            "reason": "other"
+        }"#;
+        let params: UpdateParams = serde_json::from_str(json).unwrap();
+        assert!(matches!(params.entity, EntityType::Issue));
+        assert_eq!(params.locator, "987654");
+        assert!(matches!(params.category, Some(IssueCategory::Licensing)));
+        assert_eq!(params.action, Some(UpdateAction::Ignore));
+        assert_eq!(params.notes.as_deref(), Some("false positive patch"));
+        assert_eq!(params.reason, Some(IssueIgnoreReason::Other));
+    }
+
+    #[test]
+    fn update_params_deserializes_issue_unignore() {
+        let json = r#"{"entity": "issue", "locator": "987654", "category": "vulnerability", "action": "unignore"}"#;
+        let params: UpdateParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.action, Some(UpdateAction::Unignore));
+        assert!(params.notes.is_none());
+        assert!(params.reason.is_none());
+    }
+
+    #[test]
+    fn update_params_schema_includes_issue_fields() {
+        let schema = schemars::schema_for!(UpdateParams);
+        let json = serde_json::to_string(&schema).unwrap();
+        assert!(json.contains("action"));
+        assert!(json.contains("notes"));
+        assert!(json.contains("reason"));
+        assert!(json.contains("category"));
     }
 
     #[test]

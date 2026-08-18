@@ -7,8 +7,8 @@
 
 use fossapi::mock_server::{Fixtures, MockServer, MockState};
 use fossapi::{
-    get_dependencies, FossaClient, Get, Issue, IssueCategory, IssueListQuery, List, Project,
-    Revision, Update,
+    get_dependencies, FossaClient, Get, Issue, IssueAction, IssueCategory, IssueIgnoreReason,
+    IssueListQuery, IssueUpdateParams, List, Project, Revision, Update,
 };
 
 /// A list query scoped to one category, which the API requires.
@@ -240,6 +240,83 @@ async fn test_issues_have_correct_types() {
     for issue in &licenses.items {
         assert!(issue.license.is_some(), "Licensing issue should have license");
     }
+
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn test_ignore_and_unignore_issue_workflow() {
+    let state = MockState::new().with_issue(Fixtures::licensing_issue(
+        987654,
+        "GPL-3.0",
+        "npm+leftpad$1.0.0",
+    ));
+    let server = MockServer::with_state(state).await;
+    let client = FossaClient::new("test-token", server.url()).unwrap();
+
+    // Ignore with a comment, as in "ignore this issue with comment 'false positive patch'".
+    let ignored = Issue::update(
+        &client,
+        987654,
+        IssueUpdateParams {
+            category: IssueCategory::Licensing,
+            action: IssueAction::Ignore {
+                notes: Some("false positive patch".to_string()),
+                reason: Some(IssueIgnoreReason::Other),
+            },
+        },
+    )
+    .await
+    .expect("Failed to ignore issue");
+
+    assert_eq!(ignored.id, 987654);
+    assert_eq!(ignored.statuses.active, 0);
+    assert_eq!(ignored.statuses.ignored, 1);
+
+    // Re-ignoring matches nothing (the status filter targets active rows) and errors.
+    let again = Issue::update(
+        &client,
+        987654,
+        IssueUpdateParams {
+            category: IssueCategory::Licensing,
+            action: IssueAction::Ignore {
+                notes: None,
+                reason: None,
+            },
+        },
+    )
+    .await;
+    assert!(again.is_err(), "Re-ignoring an ignored issue should error");
+
+    // Unignore restores the active status.
+    let restored = Issue::update(
+        &client,
+        987654,
+        IssueUpdateParams {
+            category: IssueCategory::Licensing,
+            action: IssueAction::Unignore,
+        },
+    )
+    .await
+    .expect("Failed to unignore issue");
+
+    assert_eq!(restored.statuses.active, 1);
+    assert_eq!(restored.statuses.ignored, 0);
+
+    // Wrong category matches nothing.
+    let wrong_category = Issue::update(
+        &client,
+        987654,
+        IssueUpdateParams {
+            category: IssueCategory::Vulnerability,
+            action: IssueAction::Ignore {
+                notes: None,
+                reason: None,
+            },
+        },
+    )
+    .await;
+    assert!(wrong_category.is_err(), "Wrong category should error");
 
     server.shutdown().await;
 }
