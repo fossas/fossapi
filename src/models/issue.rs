@@ -1362,6 +1362,20 @@ impl Update for Issue {
             });
         }
 
-        Issue::get_with_category(client, id, params.category).await
+        // The write has already applied; a refresh failure here must not read
+        // as a failed write, or callers will retry an action that succeeded.
+        let verb = match params.action {
+            IssueAction::Ignore { .. } => "ignore",
+            IssueAction::Unignore => "unignore",
+        };
+        Issue::get_with_category(client, id, params.category)
+            .await
+            .map_err(|e| FossaError::ApiError {
+                message: format!(
+                    "the {verb} of issue {id} succeeded, but re-fetching the \
+                     issue failed: {e}"
+                ),
+                status_code: None,
+            })
     }
 }

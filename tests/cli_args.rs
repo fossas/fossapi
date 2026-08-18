@@ -523,6 +523,33 @@ fn test_ignore_issue_with_notes_and_reason() {
     }
 }
 
+// Multi-word reasons are where the CLI and API surfaces diverge: clap derives
+// kebab-case value names, while the API stores `Vulnerable_code_not_in_execute_path`.
+#[test]
+fn test_ignore_issue_reason_uses_kebab_case_value_names() {
+    let cli = Cli::parse_from([
+        "fossapi",
+        "ignore",
+        "issue",
+        "987654",
+        "--category",
+        "vulnerability",
+        "--reason",
+        "vulnerable-code-not-in-execute-path",
+    ]);
+    match cli.command {
+        Command::Ignore {
+            command: IgnoreCommand::Issue(IgnoreIssueParams { reason, .. }),
+        } => {
+            assert_eq!(
+                reason,
+                Some(IssueIgnoreReason::VulnerableCodeNotInExecutePath)
+            );
+        }
+        _ => panic!("Expected Ignore command"),
+    }
+}
+
 #[test]
 fn test_unignore_issue() {
     let cli = Cli::parse_from([
