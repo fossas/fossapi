@@ -31,9 +31,11 @@ so the two surfaces expose identical operations with identical parameters.
 - `page`/`count` values below 1 are clamped to 1 (`count` is capped at 100).
 - MCP calls using the legacy arg shapes fail with a migration hint naming
   this change.
-- **Issues can be ignored and unignored** — the first issue write surface.
-  CLI: `update issue <id> --category <c> --ignore [--notes <comment>]
-  [--reason <r>]` / `--unignore`; MCP: `update` with `entity: "issue"`.
-  Ignoring an already-ignored issue is refused with a prompt to unignore
-  first (see ADR 0002); requires a full API token (push-only tokens cannot
-  write issues).
+- **Issues can be ignored and unignored** — the first issue write surface,
+  as new top-level verbs on both surfaces. CLI: `ignore issue <id>
+  --category <c> [--notes <comment>] [--reason <r>]` and `unignore issue
+  <id> --category <c>`; MCP: new `ignore` and `unignore` tools. Ignoring an
+  already-ignored issue is refused with a prompt to unignore first (see ADR
+  0002), and `--reason` is accepted on vulnerability issues only (FOSSA
+  never displays reasons elsewhere). Requires a full API token (push-only
+  tokens cannot write issues).

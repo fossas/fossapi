@@ -82,24 +82,24 @@ fossapi get issue 12345
 fossapi get issue 12345 --category licensing
 
 # Ignore an issue with a comment
-fossapi update issue 12345 --category licensing --ignore \
-  --notes "false positive patch" --reason other
+fossapi ignore issue 12345 --category licensing --notes "false positive patch"
 
 # Revert the ignore
-fossapi update issue 12345 --category licensing --unignore
+fossapi unignore issue 12345 --category licensing
 ```
 
-Ignoring supports an optional `--notes` free-text comment and a `--reason`
-(one of `fixed`, `under-investigation`, `incorrect-data-found`,
-`component-not-present`, `vulnerable-code-not-present`,
-`vulnerable-code-not-in-execute-path`,
+Ignoring supports an optional `--notes` free-text comment and, for
+**vulnerability issues only**, a structured `--reason` (one of `fixed`,
+`under-investigation`, `incorrect-data-found`, `component-not-present`,
+`vulnerable-code-not-present`, `vulnerable-code-not-in-execute-path`,
 `vulnerable-code-cannot-be-controlled-by-adversary`,
-`inline-mitigations-already-exist`, `other`). Issue writes require a full API
-token; push-only tokens can only read.
+`inline-mitigations-already-exist`, `other`) — FOSSA never displays reasons
+for licensing or quality ignores, so fossapi rejects them there. Issue writes
+require a full API token; push-only tokens can only read.
 
 Ignoring an issue that is already fully ignored fails with a prompt to
 unignore it first — changing an existing ignore's notes is a deliberate
-two-step (`--unignore`, then `--ignore --notes ...`), matching the web UI. An
+two-step (`unignore`, then `ignore --notes ...`), matching the web UI. An
 issue ignored in some projects but active in others accepts both actions,
 which then apply org-wide.
 
@@ -183,12 +183,14 @@ input schemas are generated from the same declarations the CLI parses into).
 |------|----------|
 | `get` | `project`, `revision`, `issue` (category optional — omitted probes all three), `snippet`, `snippet_match` |
 | `list` | `projects`, `issues` (category required), `dependencies`, `revisions`, `snippets`, `snippet_locations`, `snippet_paths` |
-| `update` | `project` (title, description, url, public, policy_id, default_branch), `issue` (ignore/unignore with optional notes and reason; category required) |
+| `update` | `project` (title, description, url, public, policy_id, default_branch) |
+| `ignore` | `issue` (category required; optional notes, and reason on vulnerabilities) |
+| `unignore` | `issue` (category required) |
 
 For example, `fossapi get issue 12345 --category licensing` is
 `get {"entity": "issue", "id": 12345, "category": "licensing"}` over MCP, and
-`fossapi update issue 12345 --category licensing --ignore --notes "false positive patch"`
-is `update {"entity": "issue", "id": 12345, "category": "licensing", "ignore": true, "notes": "false positive patch"}`.
+`fossapi ignore issue 12345 --category licensing --notes "false positive patch"`
+is `ignore {"entity": "issue", "id": 12345, "category": "licensing", "notes": "false positive patch"}`.
 
 > **Snippets over MCP:** use `list` with `entity: snippet_locations` and
 > `revision: <revision locator>` (optional `path` and `with_lines`) to map

@@ -4,7 +4,7 @@ FOSSA's `PUT /v2/issues/` is an unguarded upsert when targeting by ID: it
 silently ignores the `status` query filter, and re-ignoring an already-ignored
 issue overwrites its notes/reason and resets its ignored-at timestamp (the
 server's `ON CONFLICT DO UPDATE` on `IssueResolutions`). We decided fossapi's
-`update issue` pre-fetches the issue and **refuses** an action whose target
+`ignore issue` pre-fetches the issue and **refuses** an action whose target
 state already fully holds ("already ignored; unignore it first"), mirroring
 the web UI, which only ever offers Ignore on active issues and Unignore on
 ignored ones. Partially ignored issues (org-wide rollup: ignored in some
@@ -26,3 +26,6 @@ new notes.
   there is a benign race window between fetch and write.
 - `count: 0` from the server, after the pre-flight has ruled out a wrong ID or
   category, means only "not visible to this token".
+- The same UI-mirroring stance also rejects a `reason` on non-vulnerability
+  ignores: the server stores one for any category, but only vulnerability
+  ignores ever display it (UI, SBOM/VEX) — elsewhere it is write-only.

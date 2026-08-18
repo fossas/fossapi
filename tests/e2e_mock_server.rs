@@ -256,6 +256,28 @@ async fn test_ignore_and_unignore_issue_workflow() {
     let server = MockServer::with_state(state).await;
     let client = FossaClient::new("test-token", server.url()).unwrap();
 
+    // A reason on a licensing ignore is refused up front: only vulnerability
+    // ignores surface reasons anywhere in FOSSA.
+    let with_reason = Issue::update(
+        &client,
+        987654,
+        IssueUpdateParams {
+            category: IssueCategory::Licensing,
+            action: IssueAction::Ignore {
+                notes: None,
+                reason: Some(IssueIgnoreReason::Other),
+            },
+        },
+    )
+    .await;
+    assert!(
+        with_reason
+            .unwrap_err()
+            .to_string()
+            .contains("only apply to vulnerability ignores"),
+        "reason on a licensing ignore should be rejected"
+    );
+
     // Ignore with a comment, as in "ignore this issue with comment 'false positive patch'".
     let ignored = Issue::update(
         &client,
@@ -264,7 +286,7 @@ async fn test_ignore_and_unignore_issue_workflow() {
             category: IssueCategory::Licensing,
             action: IssueAction::Ignore {
                 notes: Some("false positive patch".to_string()),
-                reason: Some(IssueIgnoreReason::Other),
+                reason: None,
             },
         },
     )

@@ -9,7 +9,7 @@
 use clap::CommandFactory;
 use fossapi::cli::Cli;
 use fossapi::mcp::FossaServer;
-use fossapi::ops::{GetCommand, ListCommand, UpdateCommand};
+use fossapi::ops::{GetCommand, IgnoreCommand, ListCommand, UnignoreCommand, UpdateCommand};
 use schemars::schema_for;
 use std::collections::BTreeSet;
 
@@ -27,6 +27,14 @@ fn verbs() -> Vec<(&'static str, serde_json::Value)> {
         (
             "update",
             serde_json::to_value(schema_for!(UpdateCommand)).unwrap(),
+        ),
+        (
+            "ignore",
+            serde_json::to_value(schema_for!(IgnoreCommand)).unwrap(),
+        ),
+        (
+            "unignore",
+            serde_json::to_value(schema_for!(UnignoreCommand)).unwrap(),
         ),
     ]
 }
@@ -198,29 +206,32 @@ fn tagged_payloads_round_trip() {
         "title": "New Title"
     }))
     .expect("update payload deserializes");
-    let UpdateCommand::Project(p) = update else {
-        panic!("expected Project variant");
-    };
+    let UpdateCommand::Project(p) = update;
     assert_eq!(p.locator, "custom+org/repo");
     assert_eq!(p.title.as_deref(), Some("New Title"));
     assert_eq!(p.description, None);
 
-    let update: UpdateCommand = serde_json::from_value(serde_json::json!({
+    let ignore: IgnoreCommand = serde_json::from_value(serde_json::json!({
         "entity": "issue",
         "id": 987654,
-        "category": "licensing",
-        "ignore": true,
+        "category": "vulnerability",
         "notes": "false positive patch",
         "reason": "other"
     }))
-    .expect("update issue payload deserializes");
-    let UpdateCommand::Issue(p) = update else {
-        panic!("expected Issue variant");
-    };
+    .expect("ignore payload deserializes");
+    let IgnoreCommand::Issue(p) = ignore;
     assert_eq!(p.id, 987654);
-    assert_eq!(p.category, fossapi::IssueCategory::Licensing);
-    assert!(p.ignore);
-    assert!(!p.unignore);
+    assert_eq!(p.category, fossapi::IssueCategory::Vulnerability);
     assert_eq!(p.notes.as_deref(), Some("false positive patch"));
     assert_eq!(p.reason, Some(fossapi::IssueIgnoreReason::Other));
+
+    let unignore: UnignoreCommand = serde_json::from_value(serde_json::json!({
+        "entity": "issue",
+        "id": 987654,
+        "category": "licensing"
+    }))
+    .expect("unignore payload deserializes");
+    let UnignoreCommand::Issue(p) = unignore;
+    assert_eq!(p.id, 987654);
+    assert_eq!(p.category, fossapi::IssueCategory::Licensing);
 }

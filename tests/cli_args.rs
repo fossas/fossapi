@@ -5,10 +5,13 @@
 //! consumes.
 
 use clap::Parser;
-use fossapi::cli::{Cli, Command, GetCommand, ListCommand, UpdateCommand};
+use fossapi::cli::{
+    Cli, Command, GetCommand, IgnoreCommand, ListCommand, UnignoreCommand, UpdateCommand,
+};
 use fossapi::ops::{
-    GetIssueParams, GetProjectParams, GetRevisionParams, ListDependenciesParams, ListIssuesParams,
-    ListProjectsParams, ListRevisionsParams, PageArgs, UpdateIssueParams, UpdateProjectParams,
+    GetIssueParams, GetProjectParams, GetRevisionParams, IgnoreIssueParams, ListDependenciesParams,
+    ListIssuesParams, ListProjectsParams, ListRevisionsParams, PageArgs, UnignoreIssueParams,
+    UpdateProjectParams,
 };
 use fossapi::{IssueCategory, IssueIgnoreReason};
 
@@ -484,132 +487,88 @@ fn test_cli_parses_mcp_with_verbose_flag() {
 }
 
 // =============================================================================
-// Issue update flags (ignore / unignore with notes)
+// ignore / unignore verbs
 // =============================================================================
 
 #[test]
-fn test_update_issue_ignore_with_notes_and_reason() {
+fn test_ignore_issue_with_notes_and_reason() {
     let cli = Cli::parse_from([
         "fossapi",
-        "update",
+        "ignore",
         "issue",
         "987654",
         "--category",
-        "licensing",
-        "--ignore",
+        "vulnerability",
         "--notes",
         "false positive patch",
         "--reason",
         "other",
     ]);
     match cli.command {
-        Command::Update {
+        Command::Ignore {
             command:
-                UpdateCommand::Issue(UpdateIssueParams {
+                IgnoreCommand::Issue(IgnoreIssueParams {
                     id,
                     category,
-                    ignore,
-                    unignore,
                     notes,
                     reason,
                 }),
         } => {
             assert_eq!(id, 987654);
-            assert_eq!(category, IssueCategory::Licensing);
-            assert!(ignore);
-            assert!(!unignore);
+            assert_eq!(category, IssueCategory::Vulnerability);
             assert_eq!(notes, Some("false positive patch".to_string()));
             assert_eq!(reason, Some(IssueIgnoreReason::Other));
         }
-        _ => panic!("Expected Update command"),
+        _ => panic!("Expected Ignore command"),
     }
 }
 
 #[test]
-fn test_update_issue_unignore() {
+fn test_unignore_issue() {
     let cli = Cli::parse_from([
         "fossapi",
-        "update",
+        "unignore",
         "issue",
         "987654",
         "--category",
-        "vulnerability",
-        "--unignore",
+        "licensing",
     ]);
     match cli.command {
-        Command::Update {
-            command:
-                UpdateCommand::Issue(UpdateIssueParams {
-                    ignore, unignore, ..
-                }),
+        Command::Unignore {
+            command: UnignoreCommand::Issue(UnignoreIssueParams { id, category }),
         } => {
-            assert!(!ignore);
-            assert!(unignore);
+            assert_eq!(id, 987654);
+            assert_eq!(category, IssueCategory::Licensing);
         }
-        _ => panic!("Expected Update command"),
+        _ => panic!("Expected Unignore command"),
     }
 }
 
 #[test]
-fn test_update_issue_requires_category() {
-    let result = Cli::try_parse_from(["fossapi", "update", "issue", "987654", "--ignore"]);
+fn test_ignore_issue_requires_category() {
+    let result = Cli::try_parse_from(["fossapi", "ignore", "issue", "987654"]);
     assert!(result.is_err(), "--category must be required");
 }
 
 #[test]
-fn test_update_issue_requires_an_action() {
-    let result = Cli::try_parse_from([
-        "fossapi",
-        "update",
-        "issue",
-        "987654",
-        "--category",
-        "licensing",
-    ]);
-    assert!(result.is_err(), "one of --ignore/--unignore is required");
+fn test_unignore_issue_requires_category() {
+    let result = Cli::try_parse_from(["fossapi", "unignore", "issue", "987654"]);
+    assert!(result.is_err(), "--category must be required");
 }
 
 #[test]
-fn test_update_issue_ignore_conflicts_with_unignore() {
+fn test_unignore_issue_has_no_notes_flag() {
+    // notes belong to ignore only; the unignore declaration has no such
+    // field, so clap rejects the flag outright.
     let result = Cli::try_parse_from([
         "fossapi",
-        "update",
+        "unignore",
         "issue",
         "987654",
         "--category",
         "licensing",
-        "--ignore",
-        "--unignore",
-    ]);
-    assert!(result.is_err(), "--ignore and --unignore are exclusive");
-}
-
-#[test]
-fn test_update_issue_notes_with_unignore_parses_but_is_rejected_later() {
-    // clap can't tie --notes to --ignore (SetTrue flags defeat `requires`,
-    // and MCP bypasses clap entirely), so the parse succeeds and run_update
-    // rejects the combination at runtime for both surfaces.
-    let cli = Cli::parse_from([
-        "fossapi",
-        "update",
-        "issue",
-        "987654",
-        "--category",
-        "licensing",
-        "--unignore",
         "--notes",
         "orphan comment",
     ]);
-    match cli.command {
-        Command::Update {
-            command:
-                UpdateCommand::Issue(UpdateIssueParams {
-                    unignore, notes, ..
-                }),
-        } => {
-            assert!(unignore);
-            assert_eq!(notes, Some("orphan comment".to_string()));
-        }
-        _ => panic!("Expected Update command"),
-    }
+    assert!(result.is_err(), "--notes is not a flag of unignore");
 }

@@ -11,10 +11,10 @@ and exposed identically by both surfaces.
 _Avoid_: endpoint, command
 
 **Verb**:
-One of `get`, `list`, `update` — the top-level grouping of operations. Each
-verb is one shared enum and one MCP tool. (In code the enums are spelled
-`GetCommand`/`ListCommand`/`UpdateCommand`; "command" in a type name means
-verb, not operation.)
+One of `get`, `list`, `update`, `ignore`, `unignore` — the top-level grouping
+of operations. Each verb is one shared enum and one MCP tool. (In code the
+enums are spelled `GetCommand`/`ListCommand`/etc.; "command" in a type name
+means verb, not operation.)
 _Avoid_: action, method
 
 **Entity**:
@@ -70,8 +70,10 @@ Not a Comment.
 _Avoid_: comment, message
 
 **Reason**:
-One of a closed set of structured explanations attached to an Ignore (Fixed,
-Vulnerable code not in execute path, Other, …).
+One of a closed set of structured explanations attached to a vulnerability
+Ignore (Fixed, Vulnerable code not in execute path, Other, …). Vulnerability
+issues only — nothing in FOSSA ever displays a reason for licensing or
+quality ignores.
 _Avoid_: justification, cause
 
 **Issue exception**:

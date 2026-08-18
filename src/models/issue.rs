@@ -1313,6 +1313,22 @@ impl Update for Issue {
     /// Requires a full API token: push-only tokens cannot write issues.
     #[tracing::instrument(skip(client))]
     async fn update(client: &FossaClient, id: u64, params: IssueUpdateParams) -> Result<Self> {
+        // The server stores a reason for any category, but only vulnerability
+        // ignores ever surface it (UI, SBOM/VEX); elsewhere it is write-only
+        // noise, so mirror the UI and refuse it.
+        if let IssueAction::Ignore {
+            reason: Some(_), ..
+        } = &params.action
+        {
+            if params.category != IssueCategory::Vulnerability {
+                return Err(FossaError::InvalidParams(
+                    "reasons only apply to vulnerability ignores; use notes for \
+                     licensing and quality issues"
+                        .to_string(),
+                ));
+            }
+        }
+
         let current = Issue::get_with_category(client, id, params.category).await?;
         match params.action {
             IssueAction::Ignore { .. } if current.statuses.active == 0 => {
