@@ -45,6 +45,35 @@ fossapi get project "custom+1/my-project"
 fossapi update project "custom+1/my-project" --title "New Title"
 ```
 
+### Teams
+
+```bash
+# List teams (optionally search by name)
+fossapi list teams --search platform
+
+# Which teams is a project on?
+fossapi list teams --project "custom+1/my-project"
+
+# Projects on one team, or on no team
+fossapi list projects --team 12
+fossapi list projects --no-team
+
+# Add or remove projects (several locators at once)
+fossapi add project "custom+1/a" "custom+1/b" --team 12
+fossapi remove project "custom+1/a" --team 12
+
+# Move projects between teams
+fossapi move project "custom+1/a" --from 12 --to 34
+```
+
+Team IDs are numeric. A project can be on several teams, and `add` keeps its
+other teams, so `move` is an add to `--to` followed by a remove from
+`--from`: if the add fails nothing is removed; if the remove fails the error
+says the projects are now on both teams. `add` is all-or-nothing: FOSSA
+refuses the whole batch if the token lacks Edit on any project. Any
+`$revision` suffix on a locator is stripped. `list teams` pages at most 50
+per page.
+
 ### Revisions
 
 ```bash
@@ -182,10 +211,13 @@ input schemas are generated from the same declarations the CLI parses into).
 | Tool | Entities |
 |------|----------|
 | `get` | `project`, `revision`, `issue` (category optional — omitted probes all three), `snippet`, `snippet_match` |
-| `list` | `projects`, `issues` (category required), `dependencies`, `revisions`, `snippets`, `snippet_locations`, `snippet_paths` |
+| `list` | `projects` (optional `team` or `no_team`), `teams` (optional `search` or `project`), `issues` (category required), `dependencies`, `revisions`, `snippets`, `snippet_locations`, `snippet_paths` |
 | `update` | `project` (title, description, url, public, policy_id, default_branch) |
 | `ignore` | `issue` (category required; optional notes, and reason on vulnerabilities) |
 | `unignore` | `issue` (category required) |
+| `add` | `project` (`locators`, `team`) |
+| `remove` | `project` (`locators`, `team`) |
+| `move` | `project` (`locators`, `from`, `to`) |
 
 For example, `fossapi get issue 12345 --category licensing` is
 `get {"entity": "issue", "id": 12345, "category": "licensing"}` over MCP, and
