@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-10-26)
 
 Teams: list them, filter projects by team, and move projects between teams.
 
