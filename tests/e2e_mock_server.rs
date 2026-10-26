@@ -12,8 +12,8 @@ use fossapi::ops::{
 };
 use fossapi::{
     add_team_projects, get_dependencies, get_teams_page, move_team_projects, remove_team_projects,
-    FossaClient, Get, Issue, IssueAction, IssueCategory, IssueIgnoreReason, IssueListQuery,
-    IssueUpdateParams, List, Project, Revision, Update,
+    FossaClient, FossaError, Get, Issue, IssueAction, IssueCategory, IssueIgnoreReason,
+    IssueListQuery, IssueUpdateParams, List, Project, Revision, Update,
 };
 
 /// A list query scoped to one category, which the API requires.
@@ -675,6 +675,9 @@ async fn test_move_projects_between_teams() {
         .await
         .unwrap_err();
     assert!(err.to_string().contains("to itself"), "{err}");
+
+    let err = move_team_projects(&client, &[], 1, 2).await.unwrap_err();
+    assert!(matches!(err, FossaError::InvalidParams(_)), "{err}");
 
     server.shutdown().await;
 }

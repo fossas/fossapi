@@ -153,6 +153,12 @@ pub async fn move_team_projects(
             "cannot move projects from team {from} to itself"
         )));
     }
+    if projects.is_empty() {
+        // Checked here so the add-error wrapping below can't relabel it.
+        return Err(FossaError::InvalidParams(
+            "at least one project locator is required".to_string(),
+        ));
+    }
     let to_team =
         add_team_projects(client, to, projects)
             .await
