@@ -88,6 +88,7 @@ fn test_list_pagination_args() {
             command:
                 ListCommand::Projects(ListProjectsParams {
                     pagination: PageArgs { page, count },
+                    ..
                 }),
         } => {
             assert_eq!(page, Some(2));
@@ -216,7 +217,7 @@ fn test_list_projects_parses() {
     let cli = Cli::parse_from(["fossapi", "list", "projects"]);
     match cli.command {
         Command::List {
-            command: ListCommand::Projects(ListProjectsParams { pagination }),
+            command: ListCommand::Projects(ListProjectsParams { pagination, .. }),
         } => {
             assert_eq!(pagination.page, None);
             assert_eq!(pagination.count, None);
@@ -232,7 +233,7 @@ fn test_list_projects_with_pagination() {
     ]);
     match cli.command {
         Command::List {
-            command: ListCommand::Projects(ListProjectsParams { pagination }),
+            command: ListCommand::Projects(ListProjectsParams { pagination, .. }),
         } => {
             assert_eq!(pagination.page, Some(2));
             assert_eq!(pagination.count, Some(50));
@@ -598,4 +599,40 @@ fn test_unignore_issue_has_no_notes_flag() {
         "orphan comment",
     ]);
     assert!(result.is_err(), "--notes is not a flag of unignore");
+}
+
+#[test]
+fn test_move_project_parses_multiple_locators() {
+    let cli = Cli::parse_from([
+        "fossapi",
+        "move",
+        "project",
+        "custom+1/a",
+        "custom+1/b",
+        "--from",
+        "1",
+        "--to",
+        "2",
+    ]);
+    match cli.command {
+        Command::Move {
+            command: fossapi::cli::MoveCommand::Project(p),
+        } => {
+            assert_eq!(p.locators, ["custom+1/a", "custom+1/b"]);
+            assert_eq!((p.from, p.to), (1, 2));
+        }
+        _ => panic!("Expected Move command"),
+    }
+}
+
+#[test]
+fn test_add_project_requires_locator_and_team() {
+    assert!(Cli::try_parse_from(["fossapi", "add", "project", "--team", "1"]).is_err());
+    assert!(Cli::try_parse_from(["fossapi", "add", "project", "custom+1/a"]).is_err());
+}
+
+#[test]
+fn test_list_projects_team_conflicts_with_no_team() {
+    let result = Cli::try_parse_from(["fossapi", "list", "projects", "--team", "1", "--no-team"]);
+    assert!(result.is_err(), "--team and --no-team are exclusive");
 }

@@ -6,9 +6,14 @@
 #![cfg(feature = "test-server")]
 
 use fossapi::mock_server::{Fixtures, MockServer, MockState};
+use fossapi::ops::{
+    run_list, run_move, ListCommand, ListOutput, ListProjectsParams, ListTeamsParams, MoveCommand,
+    MoveProjectParams, PageArgs,
+};
 use fossapi::{
-    get_dependencies, FossaClient, Get, Issue, IssueAction, IssueCategory, IssueIgnoreReason,
-    IssueListQuery, IssueUpdateParams, List, Project, Revision, Update,
+    add_team_projects, get_dependencies, get_teams_page, move_team_projects, remove_team_projects,
+    FossaClient, Get, Issue, IssueAction, IssueCategory, IssueIgnoreReason, IssueListQuery,
+    IssueUpdateParams, List, Project, Revision, Update,
 };
 
 /// A list query scoped to one category, which the API requires.
@@ -506,6 +511,208 @@ async fn test_locator_with_special_characters() {
     .expect("Failed to get revision with $ in locator");
 
     assert!(revision.resolved);
+
+    server.shutdown().await;
+}
+
+// =============================================================================
+// Team Tests
+// =============================================================================
+
+/// Teams 1 ("Platform") and 2 ("Payments"); `a` and `b` on team 1, `c` on none.
+async fn team_server() -> (MockServer, FossaClient) {
+    let platform = Fixtures::team(1, "Platform");
+    let payments = Fixtures::team(2, "Payments");
+    let state = MockState::new()
+        .with_project(Fixtures::project_on_teams("custom+1/a", "A", &[&platform]))
+        .with_project(Fixtures::project_on_teams("custom+1/b", "B", &[&platform]))
+        .with_project(Fixtures::minimal_project("custom+1/c", "C"))
+        .with_team(platform)
+        .with_team(payments);
+    let server = MockServer::with_state(state).await;
+    let client = FossaClient::new("test-token", server.url()).unwrap();
+    (server, client)
+}
+
+/// Locators of the projects on one team (or on none), via `list projects`.
+async fn projects_on(client: &FossaClient, team: Option<u64>) -> Vec<String> {
+    let output = run_list(
+        client,
+        ListCommand::Projects(ListProjectsParams {
+            team,
+            no_team: team.is_none(),
+            pagination: PageArgs::default(),
+        }),
+    )
+    .await
+    .expect("list projects");
+    let ListOutput::Projects(page) = output else {
+        panic!("expected projects");
+    };
+    let mut locators: Vec<String> = page.items.into_iter().map(|p| p.id).collect();
+    locators.sort();
+    locators
+}
+
+fn locators(ls: &[&str]) -> Vec<String> {
+    ls.iter().map(|l| l.to_string()).collect()
+}
+
+#[tokio::test]
+async fn test_list_teams() {
+    let (server, client) = team_server().await;
+
+    let page = get_teams_page(&client, None, 1, 20).await.unwrap();
+    assert_eq!(page.total, Some(2));
+    assert_eq!(page.items[0].name, "Platform");
+    assert_eq!(page.items[0].team_projects_count, Some(2));
+
+    let page = get_teams_page(&client, Some("pay"), 1, 20).await.unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].id, 2);
+
+    // The API caps pageSize at 50; the page reports what was used.
+    let page = get_teams_page(&client, None, 1, 100).await.unwrap();
+    assert_eq!(page.count, 50);
+
+    let output = run_list(
+        &client,
+        ListCommand::Teams(ListTeamsParams {
+            search: None,
+            project: Some("custom+1/a$main".to_string()),
+            pagination: PageArgs::default(),
+        }),
+    )
+    .await
+    .unwrap();
+    let ListOutput::Teams(page) = output else {
+        panic!("expected teams");
+    };
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].name, "Platform");
+
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn test_list_projects_by_team() {
+    let (server, client) = team_server().await;
+
+    assert_eq!(
+        projects_on(&client, Some(1)).await,
+        ["custom+1/a", "custom+1/b"]
+    );
+    assert!(projects_on(&client, Some(2)).await.is_empty());
+    assert_eq!(projects_on(&client, None).await, ["custom+1/c"]);
+
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn test_add_projects_to_team() {
+    let (server, client) = team_server().await;
+
+    let team = add_team_projects(&client, 2, &locators(&["custom+1/a", "custom+1/c"]))
+        .await
+        .unwrap();
+    assert_eq!(team.id, 2);
+    assert_eq!(team.projects, ["custom+1/a", "custom+1/c"]);
+    // Adding keeps the other team.
+    assert_eq!(
+        projects_on(&client, Some(1)).await,
+        ["custom+1/a", "custom+1/b"]
+    );
+
+    // All-or-nothing: one unknown project fails the batch.
+    let err = add_team_projects(&client, 2, &locators(&["custom+1/b", "custom+1/nope"]))
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("not permitted"), "{err}");
+    assert_eq!(
+        projects_on(&client, Some(2)).await,
+        ["custom+1/a", "custom+1/c"]
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn test_remove_projects_from_team() {
+    let (server, client) = team_server().await;
+
+    let team = remove_team_projects(&client, 1, &locators(&["custom+1/a"]))
+        .await
+        .unwrap();
+    assert_eq!(team.projects, ["custom+1/b"]);
+    assert_eq!(
+        projects_on(&client, None).await,
+        ["custom+1/a", "custom+1/c"]
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn test_move_projects_between_teams() {
+    let (server, client) = team_server().await;
+
+    let moved = run_move(
+        &client,
+        MoveCommand::Project(MoveProjectParams {
+            locators: locators(&["custom+1/a"]),
+            from: 1,
+            to: 2,
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(moved.from.projects, ["custom+1/b"]);
+    assert_eq!(moved.to.projects, ["custom+1/a"]);
+    assert_eq!(projects_on(&client, Some(1)).await, ["custom+1/b"]);
+    assert_eq!(projects_on(&client, Some(2)).await, ["custom+1/a"]);
+
+    let err = move_team_projects(&client, &locators(&["custom+1/b"]), 1, 1)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("to itself"), "{err}");
+
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn test_move_does_not_remove_when_add_fails() {
+    let (server, client) = team_server().await;
+
+    // Team 99 does not exist, so the add 404s.
+    let err = move_team_projects(&client, &locators(&["custom+1/a"]), 1, 99)
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("nothing was removed from team 1"),
+        "{err}"
+    );
+    assert_eq!(
+        projects_on(&client, Some(1)).await,
+        ["custom+1/a", "custom+1/b"]
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn test_team_writes_strip_revision_suffix() {
+    let (server, client) = team_server().await;
+
+    // Sent as-is, "$main" matches no project and the add would 403.
+    let team = add_team_projects(&client, 2, &locators(&["custom+1/c$main"]))
+        .await
+        .unwrap();
+    assert_eq!(team.projects, ["custom+1/c"]);
+
+    let team = remove_team_projects(&client, 2, &locators(&["custom+1/c$main"]))
+        .await
+        .unwrap();
+    assert!(team.projects.is_empty());
 
     server.shutdown().await;
 }

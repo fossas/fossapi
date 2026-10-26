@@ -16,8 +16,9 @@ use std::sync::Arc;
 
 use crate::{
     ops::{
-        run_get, run_ignore, run_list, run_unignore, run_update, GetCommand, IgnoreCommand,
-        ListCommand, UnignoreCommand, UpdateCommand,
+        run_add, run_get, run_ignore, run_list, run_move, run_remove, run_unignore, run_update,
+        AddCommand, GetCommand, IgnoreCommand, ListCommand, MoveCommand, RemoveCommand,
+        UnignoreCommand, UpdateCommand,
     },
     FossaClient, FossaError,
 };
@@ -30,7 +31,7 @@ use crate::{
 /// # Tools
 ///
 /// The server exposes one tool per CLI verb — `get`, `list`, `update`,
-/// `ignore`, and `unignore` — and each tool's input schema is generated from the same
+/// `ignore`, `unignore`, `add`, `remove`, and `move` — and each tool's input schema is generated from the same
 /// [`crate::ops`] enum that the CLI parses into, so the two surfaces
 /// always expose the same operations with the same parameters.
 ///
@@ -87,7 +88,10 @@ impl FossaServer {
             ),
             Tool::new(
                 "list",
-                "List FOSSA entities. entity values: projects (paginated), issues \
+                "List FOSSA entities. entity values: projects (paginated; optional \
+                 team filters to one numeric team id, no_team to projects on no team), \
+                 teams (paginated, count max 50; optional search by name, or project \
+                 locator for the teams that project is on), issues \
                  (category required: vulnerability, licensing, quality), dependencies \
                  (revision locator required), revisions (project locator required), \
                  snippets (revision locator; one row per matched OSS package), \
@@ -119,6 +123,28 @@ impl FossaServer {
                  entity values: issue (numeric id; category required). Refused if \
                  nothing on the issue is ignored. Requires a full API token.",
                 Self::schema::<UnignoreCommand>(),
+            ),
+            Tool::new(
+                "add",
+                "Add FOSSA projects to a team. entity values: project (locators \
+                 list, team numeric id). Projects keep their other teams. \
+                 All-or-nothing: refused if the token lacks Edit on any project.",
+                Self::schema::<AddCommand>(),
+            ),
+            Tool::new(
+                "remove",
+                "Remove FOSSA projects from a team. entity values: project \
+                 (locators list, team numeric id).",
+                Self::schema::<RemoveCommand>(),
+            ),
+            Tool::new(
+                "move",
+                "Move FOSSA projects from one team to another. entity values: \
+                 project (locators list, from and to numeric team ids). Adds to \
+                 the target team, then removes from the source team; if the add \
+                 fails nothing is removed, and if the remove fails the error says \
+                 the projects are now on both teams.",
+                Self::schema::<MoveCommand>(),
             ),
         ]
     }
@@ -199,6 +225,30 @@ impl FossaServer {
     /// Handle the `ignore` tool.
     pub async fn handle_ignore(&self, command: IgnoreCommand) -> Result<CallToolResult, McpError> {
         let output = run_ignore(&self.client, command)
+            .await
+            .map_err(Self::to_mcp_error)?;
+        Self::to_result(&output)
+    }
+
+    /// Handle the `add` tool.
+    pub async fn handle_add(&self, command: AddCommand) -> Result<CallToolResult, McpError> {
+        let output = run_add(&self.client, command)
+            .await
+            .map_err(Self::to_mcp_error)?;
+        Self::to_result(&output)
+    }
+
+    /// Handle the `remove` tool.
+    pub async fn handle_remove(&self, command: RemoveCommand) -> Result<CallToolResult, McpError> {
+        let output = run_remove(&self.client, command)
+            .await
+            .map_err(Self::to_mcp_error)?;
+        Self::to_result(&output)
+    }
+
+    /// Handle the `move` tool.
+    pub async fn handle_move(&self, command: MoveCommand) -> Result<CallToolResult, McpError> {
+        let output = run_move(&self.client, command)
             .await
             .map_err(Self::to_mcp_error)?;
         Self::to_result(&output)
@@ -290,6 +340,21 @@ impl ServerHandler for FossaServer {
                     .map_err(|e| Self::describe_args_error(e, &args))?;
                 self.handle_unignore(command).await
             }
+            "add" => {
+                let command: AddCommand = serde_json::from_value(args.clone())
+                    .map_err(|e| Self::describe_args_error(e, &args))?;
+                self.handle_add(command).await
+            }
+            "remove" => {
+                let command: RemoveCommand = serde_json::from_value(args.clone())
+                    .map_err(|e| Self::describe_args_error(e, &args))?;
+                self.handle_remove(command).await
+            }
+            "move" => {
+                let command: MoveCommand = serde_json::from_value(args.clone())
+                    .map_err(|e| Self::describe_args_error(e, &args))?;
+                self.handle_move(command).await
+            }
             other => Err(McpError::invalid_params(
                 format!("Unknown tool: {other}"),
                 None,
@@ -324,7 +389,10 @@ mod tests {
             .iter()
             .map(|t| t.name.to_string())
             .collect();
-        assert_eq!(names, ["get", "list", "update", "ignore", "unignore"]);
+        assert_eq!(
+            names,
+            ["get", "list", "update", "ignore", "unignore", "add", "remove", "move"]
+        );
     }
 
     #[test]
@@ -334,6 +402,9 @@ mod tests {
         assert!(!FossaServer::schema::<UpdateCommand>().is_empty());
         assert!(!FossaServer::schema::<IgnoreCommand>().is_empty());
         assert!(!FossaServer::schema::<UnignoreCommand>().is_empty());
+        assert!(!FossaServer::schema::<AddCommand>().is_empty());
+        assert!(!FossaServer::schema::<RemoveCommand>().is_empty());
+        assert!(!FossaServer::schema::<MoveCommand>().is_empty());
     }
 
     #[test]
@@ -386,6 +457,8 @@ mod tests {
 
         let result = server
             .handle_list(ListCommand::Projects(ListProjectsParams {
+                team: None,
+                no_team: false,
                 pagination: PageArgs::default(),
             }))
             .await
@@ -507,6 +580,8 @@ mod tests {
 
         let _ = server
             .handle_list(ListCommand::Projects(ListProjectsParams {
+                team: None,
+                no_team: false,
                 pagination: PageArgs {
                     page: Some(1),
                     count: Some(200),

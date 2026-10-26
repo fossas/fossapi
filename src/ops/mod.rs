@@ -1,6 +1,7 @@
 //! Shared operation definitions consumed by both the CLI and the MCP server.
 //!
-//! Each verb (`get`, `list`, `update`, `ignore`, `unignore`) is declared once
+//! Each verb (`get`, `list`, `update`, `ignore`, `unignore`, `add`, `remove`,
+//! `move`) is declared once
 //! as an enum whose variants wrap per-entity parameter structs. The same
 //! declaration drives both frontends:
 //!
@@ -20,6 +21,7 @@
 mod get;
 mod ignore;
 mod list;
+mod team;
 mod update;
 
 pub use get::{
@@ -33,7 +35,11 @@ pub use ignore::{
 pub use list::{
     run_list, ListCommand, ListDependenciesParams, ListIssuesParams, ListOutput,
     ListProjectsParams, ListRevisionsParams, ListSnippetLocationsParams, ListSnippetPathsParams,
-    ListSnippetsParams,
+    ListSnippetsParams, ListTeamsParams,
+};
+pub use team::{
+    run_add, run_move, run_remove, AddCommand, AddProjectParams, MoveCommand, MoveProjectParams,
+    RemoveCommand, RemoveProjectParams,
 };
 pub use update::{run_update, UpdateCommand, UpdateOutput, UpdateProjectParams};
 

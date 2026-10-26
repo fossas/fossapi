@@ -7,7 +7,10 @@
 
 use clap::Parser;
 use fossapi::cli::{Cli, Command};
-use fossapi::ops::{run_get, run_ignore, run_list, run_unignore, run_update, ListOutput};
+use fossapi::ops::{
+    run_add, run_get, run_ignore, run_list, run_move, run_remove, run_unignore, run_update,
+    ListOutput,
+};
 use fossapi::{FossaClient, Page, PrettyPrint, Project, Snippet, SnippetLocation, SnippetPath};
 use serde::Serialize;
 use std::process::ExitCode;
@@ -57,6 +60,9 @@ async fn run(client: &FossaClient, cli: Cli) -> fossapi::Result<()> {
             let output = run_unignore(client, command).await?;
             output_single(&output, cli.json)
         }
+        Command::Add { command } => output_single(&run_add(client, command).await?, cli.json),
+        Command::Remove { command } => output_single(&run_remove(client, command).await?, cli.json),
+        Command::Move { command } => output_single(&run_move(client, command).await?, cli.json),
         Command::Mcp { verbose } => handle_mcp(client, verbose).await,
     }
 }
@@ -99,6 +105,7 @@ fn output_single<T: Serialize + PrettyPrint>(item: &T, json: bool) -> fossapi::R
 fn output_list(output: &ListOutput, json: bool) -> fossapi::Result<()> {
     match output {
         ListOutput::Projects(page) => output_page(page, json, |p| ProjectRow::from(p)),
+        ListOutput::Teams(page) => output_page(page, json, |t| TeamRow::from(t)),
         ListOutput::Issues(page) => output_page(page, json, |i| IssueRow::from(i)),
         ListOutput::Dependencies(page) => output_page(page, json, |d| DependencyRow::from(d)),
         ListOutput::Revisions(page) => output_page(page, json, |r| RevisionRow::from(r)),
@@ -163,6 +170,26 @@ impl From<&Project> for ProjectRow {
                 .issues
                 .as_ref()
                 .map(|i| i.total.to_string())
+                .unwrap_or_default(),
+        }
+    }
+}
+
+#[derive(Tabled)]
+struct TeamRow {
+    id: u64,
+    name: String,
+    projects: String,
+}
+
+impl From<&fossapi::Team> for TeamRow {
+    fn from(t: &fossapi::Team) -> Self {
+        Self {
+            id: t.id,
+            name: t.name.clone(),
+            projects: t
+                .team_projects_count
+                .map(|c| c.to_string())
                 .unwrap_or_default(),
         }
     }
