@@ -4,7 +4,7 @@
 
 use crate::{
     Dependency, Issue, IssueDepths, IssueMetric, IssueSource, IssueStatuses, LatestRevision,
-    Project, ProjectIssues, Revision,
+    Project, ProjectIssues, Revision, Team,
 };
 
 /// Collection of fixture factories for test data.
@@ -32,6 +32,24 @@ impl Fixtures {
             teams: vec![],
             latest_revision: None,
             latest_build_status: None,
+        }
+    }
+
+    /// Create a project that is on the given teams.
+    pub fn project_on_teams(locator: &str, title: &str, teams: &[&Team]) -> Project {
+        let mut project = Self::minimal_project(locator, title);
+        project.teams = teams.iter().map(|t| (*t).clone()).collect();
+        project
+    }
+
+    /// Create a team.
+    pub fn team(id: u64, name: &str) -> Team {
+        Team {
+            id,
+            name: name.to_string(),
+            unique_identifier: None,
+            team_projects_count: None,
+            team_members_count: None,
         }
     }
 

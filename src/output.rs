@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 
 use crate::{
     CodeLine, Issue, IssueMetric, Project, Revision, Snippet, SnippetKind, SnippetMatchDetails,
+    TeamMove, TeamProjects,
 };
 
 /// Trait for human-readable key-value output.
@@ -52,6 +53,22 @@ impl PrettyPrint for Project {
         }
 
         lines.join("\n")
+    }
+}
+
+impl PrettyPrint for TeamProjects {
+    fn pretty_print(&self) -> String {
+        format!("Team {}: {} projects", self.id, self.projects.len())
+    }
+}
+
+impl PrettyPrint for TeamMove {
+    fn pretty_print(&self) -> String {
+        format!(
+            "Moved. From {}\nTo   {}",
+            self.from.pretty_print(),
+            self.to.pretty_print()
+        )
     }
 }
 

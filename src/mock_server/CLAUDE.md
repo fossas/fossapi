@@ -19,6 +19,7 @@ mock_server/
     ├── projects.rs  # GET/PUT /projects/:locator, GET /v2/projects
     ├── revisions.rs # GET /revisions/:locator, GET /projects/:locator/revisions
     ├── dependencies.rs # GET /v2/revisions/:locator/dependencies
+    ├── teams.rs     # GET /v2/teams, GET /projects/:locator/teams, PUT /teams/:id/projects
     └── issues.rs    # GET /v2/issues/:id, GET /v2/issues, PUT /v2/issues/
 ```
 
@@ -52,6 +53,9 @@ async fn test_workflow() {
 | `/projects/:locator` | GET | get_project |
 | `/projects/:locator` | PUT | update_project |
 | `/v2/projects` | GET | list_projects |
+| `/projects/:locator/teams` | GET | list_project_teams |
+| `/v2/teams` | GET | list_teams |
+| `/teams/:id/projects` | PUT | update_team_projects (add/remove; membership lives on `Project.teams`) |
 | `/revisions/:locator` | GET | get_revision |
 | `/projects/:locator/revisions` | GET | list_revisions |
 | `/v2/revisions/:locator/dependencies` | GET | list_dependencies |

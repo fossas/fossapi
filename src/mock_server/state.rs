@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::{Dependency, Issue, Project, Revision};
+use crate::{Dependency, Issue, Project, Revision, Team};
 
 /// Shared state for the mock server.
 ///
@@ -26,6 +26,9 @@ pub struct MockState {
 
     /// Issues indexed by ID.
     pub issues: HashMap<u64, Issue>,
+
+    /// Teams indexed by ID. Membership lives on each project's `teams`.
+    pub teams: HashMap<u64, Team>,
 
     /// Optional authentication token. If set, requests must include this token.
     pub required_token: Option<String>,
@@ -63,6 +66,12 @@ impl MockState {
     /// Add an issue to the state.
     pub fn with_issue(mut self, issue: Issue) -> Self {
         self.issues.insert(issue.id, issue);
+        self
+    }
+
+    /// Add a team to the state.
+    pub fn with_team(mut self, team: Team) -> Self {
+        self.teams.insert(team.id, team);
         self
     }
 

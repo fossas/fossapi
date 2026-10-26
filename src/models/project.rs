@@ -61,9 +61,10 @@ pub struct Project {
     #[serde(default)]
     pub labels: Vec<String>,
 
-    /// Teams associated with this project.
+    /// Teams the project is on. Filled by `GET /v2/projects`; the
+    /// single-project endpoint omits it (use [`crate::get_project_teams`]).
     #[serde(default)]
-    pub teams: Vec<String>,
+    pub teams: Vec<crate::models::team::Team>,
 
     /// Latest revision information.
     #[serde(rename = "latestRevision", default)]
@@ -183,6 +184,10 @@ pub struct ProjectListQuery {
     /// Sort order.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort: Option<String>,
+
+    /// Filter by team: a numeric team ID, or `"null"` for projects on no team.
+    #[serde(rename = "teamId", skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<String>,
 }
 
 /// Parameters for updating a project.

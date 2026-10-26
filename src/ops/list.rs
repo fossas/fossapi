@@ -6,16 +6,44 @@ use serde::{Deserialize, Serialize};
 
 use super::PageArgs;
 use crate::{
-    get_dependencies_page, get_issues_page, get_revisions_page, get_snippet_locations_page,
-    get_snippet_paths, get_snippets_page, Dependency, FossaClient, Issue, IssueCategory,
-    IssueListQuery, List, Page, Project, Result, Revision, Snippet, SnippetListQuery,
-    SnippetLocation, SnippetPath,
+    get_dependencies_page, get_issues_page, get_project_teams, get_revisions_page,
+    get_snippet_locations_page, get_snippet_paths, get_snippets_page, get_teams_page, Dependency,
+    FossaClient, FossaError, Issue, IssueCategory, IssueListQuery, List, Page, Project,
+    ProjectListQuery, Result, Revision, Snippet, SnippetListQuery, SnippetLocation, SnippetPath,
+    Team,
 };
 
 /// Parameters for `list projects`.
 #[derive(Args, Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 pub struct ListProjectsParams {
+    /// Only projects on this team (numeric team ID).
+    #[arg(long)]
+    pub team: Option<u64>,
+
+    /// Only projects on no team.
+    #[arg(long, conflicts_with = "team")]
+    #[serde(default)]
+    pub no_team: bool,
+
     /// Pagination.
+    #[command(flatten)]
+    #[serde(flatten)]
+    pub pagination: PageArgs,
+}
+
+/// Parameters for `list teams`.
+#[derive(Args, Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
+pub struct ListTeamsParams {
+    /// Filter by team name.
+    #[arg(long)]
+    pub search: Option<String>,
+
+    /// Only the teams this project is on (project locator; returns every
+    /// match on one page).
+    #[arg(long, conflicts_with = "search")]
+    pub project: Option<String>,
+
+    /// Pagination (count is capped at 50 by the API).
     #[command(flatten)]
     #[serde(flatten)]
     pub pagination: PageArgs,
@@ -111,9 +139,13 @@ pub struct ListSnippetPathsParams {
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(tag = "entity", rename_all = "snake_case")]
 pub enum ListCommand {
-    /// List all projects.
+    /// List all projects, optionally only those on one team or on none.
     #[command(alias = "project")]
     Projects(ListProjectsParams),
+
+    /// List teams, or the teams one project is on.
+    #[command(alias = "team")]
+    Teams(ListTeamsParams),
 
     /// List all issues in a category.
     #[command(alias = "issue")]
@@ -144,6 +176,8 @@ pub enum ListCommand {
 pub enum ListOutput {
     /// A page of projects.
     Projects(Page<Project>),
+    /// A page of teams.
+    Teams(Page<Team>),
     /// A page of issues.
     Issues(Page<Issue>),
     /// A page of dependencies.
@@ -162,11 +196,38 @@ pub enum ListOutput {
 pub async fn run_list(client: &FossaClient, command: ListCommand) -> Result<ListOutput> {
     Ok(match command {
         ListCommand::Projects(p) => {
+            if p.team.is_some() && p.no_team {
+                return Err(FossaError::InvalidParams(
+                    "team and no_team are mutually exclusive".to_string(),
+                ));
+            }
             let (page, count) = p.pagination.resolve();
-            ListOutput::Projects(
-                Project::list_page(client, &Default::default(), page, count).await?,
-            )
+            let query = ProjectListQuery {
+                team_id: match p.team {
+                    Some(id) => Some(id.to_string()),
+                    None if p.no_team => Some("null".to_string()),
+                    None => None,
+                },
+                ..Default::default()
+            };
+            ListOutput::Projects(Project::list_page(client, &query, page, count).await?)
         }
+        ListCommand::Teams(p) => match p.project {
+            Some(project) => {
+                if p.search.is_some() {
+                    return Err(FossaError::InvalidParams(
+                        "search and project are mutually exclusive".to_string(),
+                    ));
+                }
+                let teams = get_project_teams(client, &project).await?;
+                let total = teams.len() as u64;
+                ListOutput::Teams(Page::new(teams, 1, total.max(1) as u32, Some(total)))
+            }
+            None => {
+                let (page, count) = p.pagination.resolve();
+                ListOutput::Teams(get_teams_page(client, p.search.as_deref(), page, count).await?)
+            }
+        },
         ListCommand::Issues(p) => {
             let (page, count) = p.pagination.resolve();
             let query = IssueListQuery {

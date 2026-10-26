@@ -20,6 +20,9 @@ pub struct ListProjectsQuery {
     pub page: Option<u32>,
     pub count: Option<u32>,
     pub title: Option<String>,
+    /// A numeric team ID, or "null" for projects on no team.
+    #[serde(rename = "teamId")]
+    pub team_id: Option<String>,
 }
 
 /// Response for listing projects.
@@ -75,7 +78,23 @@ pub async fn list_projects(
     let page = query.page.unwrap_or(1);
     let count = query.count.unwrap_or(20);
 
-    let all_projects = state.list_projects(query.title.as_deref());
+    let mut all_projects = state.list_projects(query.title.as_deref());
+    match query.team_id.as_deref() {
+        None => {}
+        Some("null") => all_projects.retain(|p| p.teams.is_empty()),
+        Some(id) => {
+            let Ok(id) = id.parse::<u64>() else {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "message": "Invalid integer value for param 'teamId'"
+                    })),
+                )
+                    .into_response();
+            };
+            all_projects.retain(|p| p.teams.iter().any(|t| t.id == id));
+        }
+    }
     let total = all_projects.len() as u64;
 
     // Apply pagination
@@ -95,6 +114,7 @@ pub async fn list_projects(
         StatusCode::OK,
         Json(ListProjectsResponse { projects, total }),
     )
+        .into_response()
 }
 
 /// PUT /projects/{locator}

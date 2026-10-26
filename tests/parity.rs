@@ -9,7 +9,10 @@
 use clap::CommandFactory;
 use fossapi::cli::Cli;
 use fossapi::mcp::FossaServer;
-use fossapi::ops::{GetCommand, IgnoreCommand, ListCommand, UnignoreCommand, UpdateCommand};
+use fossapi::ops::{
+    AddCommand, GetCommand, IgnoreCommand, ListCommand, MoveCommand, RemoveCommand,
+    UnignoreCommand, UpdateCommand,
+};
 use schemars::schema_for;
 use std::collections::BTreeSet;
 
@@ -35,6 +38,18 @@ fn verbs() -> Vec<(&'static str, serde_json::Value)> {
         (
             "unignore",
             serde_json::to_value(schema_for!(UnignoreCommand)).unwrap(),
+        ),
+        (
+            "add",
+            serde_json::to_value(schema_for!(AddCommand)).unwrap(),
+        ),
+        (
+            "remove",
+            serde_json::to_value(schema_for!(RemoveCommand)).unwrap(),
+        ),
+        (
+            "move",
+            serde_json::to_value(schema_for!(MoveCommand)).unwrap(),
         ),
     ]
 }
@@ -234,4 +249,26 @@ fn tagged_payloads_round_trip() {
     let UnignoreCommand::Issue(p) = unignore;
     assert_eq!(p.id, 987654);
     assert_eq!(p.category, fossapi::IssueCategory::Licensing);
+
+    let mv: MoveCommand = serde_json::from_value(serde_json::json!({
+        "entity": "project",
+        "locators": ["custom+org/a", "custom+org/b"],
+        "from": 1,
+        "to": 2
+    }))
+    .expect("move payload deserializes");
+    let MoveCommand::Project(p) = mv;
+    assert_eq!(p.locators, ["custom+org/a", "custom+org/b"]);
+    assert_eq!((p.from, p.to), (1, 2));
+
+    let list: ListCommand = serde_json::from_value(serde_json::json!({
+        "entity": "projects",
+        "no_team": true
+    }))
+    .expect("list projects payload deserializes");
+    let ListCommand::Projects(p) = list else {
+        panic!("expected Projects variant");
+    };
+    assert!(p.no_team);
+    assert_eq!(p.team, None);
 }

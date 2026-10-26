@@ -7,7 +7,10 @@
 
 use clap::{Parser, Subcommand};
 
-pub use crate::ops::{GetCommand, IgnoreCommand, ListCommand, UnignoreCommand, UpdateCommand};
+pub use crate::ops::{
+    AddCommand, GetCommand, IgnoreCommand, ListCommand, MoveCommand, RemoveCommand,
+    UnignoreCommand, UpdateCommand,
+};
 
 /// FOSSA API command-line interface.
 #[derive(Parser, Debug)]
@@ -52,6 +55,24 @@ pub enum Command {
     Unignore {
         #[command(subcommand)]
         command: UnignoreCommand,
+    },
+
+    /// Add projects to a team (keeps their other teams).
+    Add {
+        #[command(subcommand)]
+        command: AddCommand,
+    },
+
+    /// Remove projects from a team.
+    Remove {
+        #[command(subcommand)]
+        command: RemoveCommand,
+    },
+
+    /// Move projects from one team to another (add, then remove).
+    Move {
+        #[command(subcommand)]
+        command: MoveCommand,
     },
 
     /// Run the MCP server on stdio.

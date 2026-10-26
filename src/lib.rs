@@ -122,9 +122,16 @@ pub use models::{
     SnippetMatchDetails,
     SnippetPath,
     SnippetQuery,
+    // Team types
+    Team,
+    TeamMove,
+    TeamProjects,
 };
 
 // Re-export convenience functions
+pub use models::{
+    add_team_projects, get_project_teams, get_teams_page, move_team_projects, remove_team_projects,
+};
 pub use models::{get_dependencies, get_dependencies_page};
 pub use models::{get_issues, get_issues_page, get_project_issues};
 pub use models::{get_revision, get_revisions, get_revisions_page};

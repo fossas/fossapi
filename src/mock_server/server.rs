@@ -125,6 +125,13 @@ impl MockServer {
             .route("/projects/:locator", get(handlers::get_project))
             .route("/projects/:locator", put(handlers::update_project))
             .route("/v2/projects", get(handlers::list_projects))
+            .route(
+                "/projects/:locator/teams",
+                get(handlers::list_project_teams),
+            )
+            // Team routes
+            .route("/v2/teams", get(handlers::list_teams))
+            .route("/teams/:id/projects", put(handlers::update_team_projects))
             // Revision routes
             .route("/revisions/:locator", get(handlers::get_revision))
             .route(
