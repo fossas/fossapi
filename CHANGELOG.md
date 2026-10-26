@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+Teams: list them, filter projects by team, and move projects between teams.
+
+### Breaking changes
+
+- **`Project.teams` is now `Vec<Team>`** (id + name), not `Vec<String>`.
+  `GET /v2/projects` returns team objects, so listing any project on a team
+  failed to parse before this.
+
+### Additions
+
+- `list teams` (`--search`, or `--project <locator>` for one project's teams).
+- `list projects --team <id>` / `--no-team`.
+- `add project <locators…> --team <id>` and `remove project <locators…> --team <id>`.
+- `move project <locators…> --from <id> --to <id>`: adds to the target team,
+  then removes from the source. If the add fails nothing is removed; if the
+  remove fails the error says the projects are now on both teams. `$revision`
+  suffixes are stripped. The API's destructive `replace` action is never sent.
+- `add`, `remove` and `move` are also new MCP tools.
+
 ## 0.4.0 (2026-08-18)
 
 The CLI and MCP server now share one set of operation declarations (`src/ops/`),
